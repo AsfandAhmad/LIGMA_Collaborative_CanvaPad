@@ -26,10 +26,16 @@ Create `.env` file:
 ```env
 DATABASE_URL=postgresql://user:pass@localhost:5432/ligma
 JWT_SECRET=your_secret_key_here
-ANTHROPIC_API_KEY=sk-ant-your-key-here
+PUTER_API_KEY=your_puter_api_key_here
 PORT=4000
 NODE_ENV=development
 ```
+
+**Get Puter API Key:**
+1. Visit [puter.com](https://puter.com)
+2. Sign up/login
+3. Get your API key from dashboard
+4. Grok AI is integrated via Puter.js (x-ai/grok-beta)
 
 ### 3. Setup Database
 
@@ -125,11 +131,12 @@ Connect to `ws://localhost:4000/ws?token=JWT_TOKEN&roomId=ROOM_ID`
 
 ### Intent Classification
 - Automatically classifies node text as: `action_item`, `decision`, `question`, or `reference`
+- Powered by **Grok AI** via Puter.js API
 - Debounced (1500ms) to avoid excessive API calls
 - Auto-creates tasks for action items with >70% confidence
 
 ### Canvas Summary Export
-- Uses Claude API to generate coherent markdown summary
+- Uses **Grok AI** (x-ai/grok-beta) via Puter.js to generate coherent markdown summary
 - Groups related content and identifies key items
 - Includes metadata (room name, node count, timestamp)
 

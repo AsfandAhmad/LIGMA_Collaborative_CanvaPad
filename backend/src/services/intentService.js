@@ -5,19 +5,15 @@
 //   Debounce: only call AI after user stops typing for 1500ms
 //   Returns: { intent: "action_item" | "decision" | "question" | "reference" }
 
-const Anthropic = require('@anthropic-ai/sdk');
+const axios = require('axios');
 const eventService = require('./eventService');
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
 
 // Debounce map: nodeId -> timeout
 const debounceTimers = new Map();
 const DEBOUNCE_DELAY = 1500;
 
 /**
- * Classify node text intent using Claude API with debouncing
+ * Classify node text intent using Grok AI via Puter.js API with debouncing
  * @param {string} text - The node text to classify
  * @param {string} nodeId - The node ID
  * @param {string} roomId - The room ID
@@ -48,7 +44,7 @@ async function classifyNodeIntent(text, nodeId, roomId, userId) {
 }
 
 /**
- * Perform the actual classification using Claude API
+ * Perform the actual classification using Grok AI via Puter.js
  */
 async function performClassification(text, nodeId, roomId, userId) {
   if (!text || text.trim().length === 0) {
@@ -56,13 +52,7 @@ async function performClassification(text, nodeId, roomId, userId) {
   }
 
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 256,
-      messages: [
-        {
-          role: 'user',
-          content: `Classify the following text into one of these categories: action_item, decision, question, reference.
+    const prompt = `Classify the following text into one of these categories: action_item, decision, question, reference.
 
 Rules:
 - action_item: Tasks, todos, things that need to be done
@@ -73,13 +63,31 @@ Rules:
 Return ONLY valid JSON in this exact format:
 {"intent": "category", "confidence": 0.95}
 
-Text to classify: "${text}"`,
-        },
-      ],
+Text to classify: "${text}"`;
+
+    // Call Puter.js AI API with Grok
+    const response = await axios.post('https://api.puter.com/drivers/call', {
+      interface: 'puter-chat-completion',
+      driver: 'x-ai',
+      method: 'complete',
+      args: {
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        model: 'grok-beta'
+      }
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.PUTER_API_KEY}`
+      }
     });
 
-    // Parse Claude's response
-    const responseText = message.content[0].text.trim();
+    // Parse Grok's response
+    const responseText = response.data.message.content.trim();
     const result = JSON.parse(responseText);
 
     // Validate response

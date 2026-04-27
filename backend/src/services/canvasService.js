@@ -6,11 +6,7 @@
 // Called when a new user joins a room
 
 const prisma = require('../db/prisma');
-const Anthropic = require('@anthropic-ai/sdk');
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+const axios = require('axios');
 
 /**
  * Get canvas state by replaying all events
@@ -112,13 +108,7 @@ async function exportCanvasSummary(roomId) {
   }).join('\n\n');
 
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 2048,
-      messages: [
-        {
-          role: 'user',
-          content: `You are summarizing a collaborative canvas workspace. Below are all the nodes from the canvas. Create a well-structured markdown summary that:
+    const prompt = `You are summarizing a collaborative canvas workspace. Below are all the nodes from the canvas. Create a well-structured markdown summary that:
 
 1. Groups related content together
 2. Identifies key decisions, action items, and questions
@@ -128,12 +118,30 @@ async function exportCanvasSummary(roomId) {
 Canvas Nodes:
 ${nodeContents}
 
-Generate a comprehensive summary in markdown format:`,
-        },
-      ],
+Generate a comprehensive summary in markdown format:`;
+
+    // Call Puter.js AI API with Grok
+    const response = await axios.post('https://api.puter.com/drivers/call', {
+      interface: 'puter-chat-completion',
+      driver: 'x-ai',
+      method: 'complete',
+      args: {
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        model: 'grok-beta'
+      }
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.PUTER_API_KEY}`
+      }
     });
 
-    const summary = message.content[0].text;
+    const summary = response.data.message.content;
 
     // Add metadata header
     const room = await prisma.room.findUnique({

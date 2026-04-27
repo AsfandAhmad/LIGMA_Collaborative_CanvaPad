@@ -39,7 +39,7 @@ npm run dev
 - PostgreSQL + Prisma
 - WebSocket (ws)
 - JWT + bcrypt
-- Claude API (Anthropic)
+- Grok AI via Puter.js
 
 **Frontend:**
 - Next.js 15
