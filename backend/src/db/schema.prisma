@@ -17,3 +17,77 @@
 //
 // Task: id, text, authorId, nodeId, roomId, status, createdAt
 //   (auto-created by intentService, linked back to nodeId)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String   // "Lead", "Contributor", "Viewer"
+  createdAt    DateTime @default(now())
+  
+  rooms        Room[]
+  tasks        Task[]
+  events       Event[]
+}
+
+model Room {
+  id        String   @id @default(uuid())
+  name      String
+  createdBy String
+  createdAt DateTime @default(now())
+  
+  creator   User      @relation(fields: [createdBy], references: [id])
+  events    Event[]
+  nodeAcls  NodeAcl[]
+  tasks     Task[]
+}
+
+model Event {
+  id        Int      @id @default(autoincrement())
+  type      String   // NODE_CREATED, NODE_UPDATED, NODE_DELETED, LOCK_NODE, RESET, TASK_CREATED
+  payload   Json     // The actual delta data
+  userId    String
+  roomId    String
+  timestamp DateTime @default(now())
+  
+  user      User     @relation(fields: [userId], references: [id])
+  room      Room     @relation(fields: [roomId], references: [id])
+  
+  @@index([roomId, timestamp])
+}
+
+model NodeAcl {
+  id           String   @id @default(uuid())
+  nodeId       String   @unique
+  roomId       String
+  allowedRoles String[] // ["Lead", "Contributor"]
+  createdAt    DateTime @default(now())
+  
+  room         Room     @relation(fields: [roomId], references: [id])
+}
+
+model Task {
+  id        String   @id @default(uuid())
+  text      String
+  authorId  String
+  nodeId    String
+  roomId    String
+  status    String   @default("todo") // "todo", "done"
+  createdAt DateTime @default(now())
+  
+  author    User     @relation(fields: [authorId], references: [id])
+  room      Room     @relation(fields: [roomId], references: [id])
+  
+  @@index([roomId])
+  @@index([nodeId])
+}
