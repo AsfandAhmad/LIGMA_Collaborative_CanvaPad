@@ -1,0 +1,19 @@
+// Define these models:
+//
+// User: id, name, email, passwordHash, role (Lead/Contributor/Viewer)
+//
+// Room: id, name, createdBy, createdAt
+//
+// Event: (THE CORE TABLE)
+//   id          Int @id @autoincrement
+//   type        String   (NODE_CREATED, NODE_UPDATED, etc.)
+//   payload     Json     (the actual delta data)
+//   userId      String
+//   roomId      String
+//   timestamp   DateTime @default(now())
+//   -- NO UPDATE, NO DELETE ever on this table --
+//
+// NodeAcl: nodeId, roomId, allowedRoles String[] 
+//
+// Task: id, text, authorId, nodeId, roomId, status, createdAt
+//   (auto-created by intentService, linked back to nodeId)
