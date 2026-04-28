@@ -16,7 +16,8 @@ jest.mock('../../services/intentService', () => ({
 }));
 
 const Y = require('yjs');
-const { handleYjsUpdate, getYDoc, getEventType } = require('../yjsServer');
+const { logYjsMutations, getYDoc } = require('../yjsServer');
+const { getEventType, decodeYjsUpdate } = require('../../utils/crdt');
 const eventService = require('../../services/eventService');
 
 describe('Event Logging Integration', () => {
@@ -33,7 +34,7 @@ describe('Event Logging Integration', () => {
     console.log('✅ Test 1 passed: getEventType returns correct event types');
   });
 
-  test('Test 2: handleYjsUpdate calls insertEvent for create mutation', async () => {
+  test('Test 2: logYjsMutations calls insertEvent for create mutation', async () => {
     const roomId = 'log_room_2';
     const userId = 'user_2';
     const ydoc = getYDoc(roomId);
@@ -52,8 +53,11 @@ describe('Event Logging Integration', () => {
 
     // Delta = only what changed after svBefore
     const delta = Y.encodeStateAsUpdate(ydoc, svBefore);
+    
+    // Decode mutations
+    const mutations = decodeYjsUpdate(delta, prevState);
 
-    await handleYjsUpdate(delta, prevState, ydoc, roomId, userId);
+    await logYjsMutations(mutations, roomId, userId);
     await new Promise((r) => setTimeout(r, 50));
 
     expect(eventService.insertEvent).toHaveBeenCalledWith(
@@ -65,7 +69,7 @@ describe('Event Logging Integration', () => {
     console.log('✅ Test 2 passed: insertEvent called for CRDT_NODE_CREATED');
   });
 
-  test('Test 3: handleYjsUpdate calls insertEvent for delete mutation', async () => {
+  test('Test 3: logYjsMutations calls insertEvent for delete mutation', async () => {
     const roomId = 'log_room_3';
     const userId = 'user_3';
     const ydoc = getYDoc(roomId);
@@ -86,8 +90,11 @@ describe('Event Logging Integration', () => {
     });
 
     const delta = Y.encodeStateAsUpdate(ydoc, svBefore);
+    
+    // Decode mutations
+    const mutations = decodeYjsUpdate(delta, prevState);
 
-    await handleYjsUpdate(delta, prevState, ydoc, roomId, userId);
+    await logYjsMutations(mutations, roomId, userId);
     await new Promise((r) => setTimeout(r, 50));
 
     expect(eventService.insertEvent).toHaveBeenCalledWith(
@@ -99,7 +106,7 @@ describe('Event Logging Integration', () => {
     console.log('✅ Test 3 passed: insertEvent called for CRDT_NODE_DELETED');
   });
 
-  test('Test 4: handleYjsUpdate calls insertEvent for move mutation (only x/y change)', async () => {
+  test('Test 4: logYjsMutations calls insertEvent for move mutation (only x/y change)', async () => {
     const roomId = 'log_room_4';
     const userId = 'user_4';
     const ydoc = getYDoc(roomId);
@@ -123,8 +130,11 @@ describe('Event Logging Integration', () => {
     });
 
     const delta = Y.encodeStateAsUpdate(ydoc, svBefore);
+    
+    // Decode mutations
+    const mutations = decodeYjsUpdate(delta, prevState);
 
-    await handleYjsUpdate(delta, prevState, ydoc, roomId, userId);
+    await logYjsMutations(mutations, roomId, userId);
     await new Promise((r) => setTimeout(r, 50));
 
     expect(eventService.insertEvent).toHaveBeenCalledWith(
@@ -136,7 +146,7 @@ describe('Event Logging Integration', () => {
     console.log('✅ Test 4 passed: insertEvent called for CRDT_NODE_MOVED');
   });
 
-  test('Test 5: handleYjsUpdate does not throw when insertEvent fails', async () => {
+  test('Test 5: logYjsMutations does not throw when insertEvent fails', async () => {
     const roomId = 'log_room_5';
     const userId = 'user_5';
     const ydoc = getYDoc(roomId);
@@ -152,9 +162,12 @@ describe('Event Logging Integration', () => {
     });
 
     const delta = Y.encodeStateAsUpdate(ydoc, svBefore);
+    
+    // Decode mutations
+    const mutations = decodeYjsUpdate(delta, prevState);
 
     await expect(
-      handleYjsUpdate(delta, prevState, ydoc, roomId, userId)
+      logYjsMutations(mutations, roomId, userId)
     ).resolves.not.toThrow();
 
     console.log('✅ Test 5 passed: Event logging failures handled gracefully');

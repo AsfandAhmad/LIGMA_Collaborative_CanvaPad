@@ -8,11 +8,11 @@
 //   6. On close: remove from room, broadcast USER_LEFT
 
 const WebSocket = require('ws');
-const url = require('url');
-const jwt = require('jsonwebtoken');
 const { handleMessage } = require('./wsHandler');
 const eventService = require('../services/eventService');
 const { updateCursor, broadcastCursor, getCursorSnapshot, removeCursor } = require('./presence');
+const { parseWsQuery, broadcastToRoomSet, safeCloseWs, safeSendWs } = require('../utils/wsUtils');
+const { AuthenticationError } = require('../utils/errors');
 
 // Room management: roomId -> Set of WebSocket clients
 const rooms = new Map();
@@ -56,24 +56,8 @@ function assignUserColor(roomId) {
  */
 async function handleRawWSConnection(ws, req) {
   try {
-    // Parse query parameters
-    const params = url.parse(req.url, true).query;
-    const token = params.token;
-    const roomId = params.roomId;
-
-    if (!token || !roomId) {
-      ws.close(1008, 'Token and roomId required');
-      return;
-    }
-
-    // Verify JWT token
-    let user;
-    try {
-      user = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (error) {
-      ws.close(1008, 'Invalid token');
-      return;
-    }
+    // Parse and validate query parameters with JWT verification
+    const { roomId, user } = parseWsQuery(req);
 
     // Attach user info to WebSocket
     ws.userId = user.id;
@@ -91,13 +75,14 @@ async function handleRawWSConnection(ws, req) {
     console.log(`User ${user.id} (${user.role}) joined room ${roomId}`);
 
     // Send missed events if client provides lastEventId
-    const lastEventId = parseInt(params.lastEventId) || 0;
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const lastEventId = parseInt(url.searchParams.get('lastEventId')) || 0;
     if (lastEventId > 0) {
       const missedEvents = await eventService.getEvents(roomId, lastEventId);
-      ws.send(JSON.stringify({
+      safeSendWs(ws, {
         type: 'SYNC',
         events: missedEvents,
-      }));
+      });
     }
 
     // Broadcast user joined
@@ -111,10 +96,10 @@ async function handleRawWSConnection(ws, req) {
     // Send current cursor positions to new joiner
     const cursorSnapshot = getCursorSnapshot(roomId);
     if (cursorSnapshot.length > 0) {
-      ws.send(JSON.stringify({
+      safeSendWs(ws, {
         type: 'CURSOR_SNAPSHOT',
         cursors: cursorSnapshot,
-      }));
+      });
     }
 
     // Handle incoming messages
@@ -145,10 +130,10 @@ async function handleRawWSConnection(ws, req) {
         }
       } catch (error) {
         console.error('Message parse error:', error);
-        ws.send(JSON.stringify({
+        safeSendWs(ws, {
           type: 'ERROR',
           error: 'Invalid message format',
-        }));
+        });
       }
     });
 
@@ -193,7 +178,13 @@ async function handleRawWSConnection(ws, req) {
 
   } catch (error) {
     console.error('WebSocket connection error:', error);
-    ws.close(1011, 'Internal server error');
+    
+    // Handle authentication errors
+    if (error instanceof AuthenticationError) {
+      safeCloseWs(ws, 1008, error.message);
+    } else {
+      safeCloseWs(ws, 1011, 'Internal server error');
+    }
   }
 }
 
@@ -223,13 +214,7 @@ function broadcast(roomId, message, excludeWs = null) {
     return;
   }
 
-  const messageStr = JSON.stringify(message);
-  
-  rooms.get(roomId).forEach((client) => {
-    if (client !== excludeWs && client.readyState === WebSocket.OPEN) {
-      client.send(messageStr);
-    }
-  });
+  broadcastToRoomSet(rooms.get(roomId), message, excludeWs);
 }
 
 module.exports = {

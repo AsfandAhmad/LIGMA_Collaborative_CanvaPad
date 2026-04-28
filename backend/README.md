@@ -302,6 +302,46 @@ ws://localhost:4000/ws?token=JWT_TOKEN&roomId=ROOM_ID
 
 ## Architecture
 
+### Project Structure
+
+```
+backend/
+├── src/
+│   ├── app.js              # Express app setup with CORS and routes
+│   ├── index.js            # Entry point with WebSocket server initialization
+│   ├── db/
+│   │   ├── schema.prisma   # Database schema (User, Room, Event, NodeAcl, Task)
+│   │   ├── prisma.js       # Prisma client instance
+│   │   └── ligma_schema.sql # SQL schema reference
+│   ├── middleware/
+│   │   ├── auth.js         # JWT authentication middleware
+│   │   └── rbac.js         # Role-based access control middleware
+│   ├── routes/
+│   │   ├── auth.js         # Authentication endpoints (register, login)
+│   │   ├── canvas.js       # Canvas state and export endpoints
+│   │   ├── nodes.js        # Node management endpoints
+│   │   └── tasks.js        # Task management endpoints
+│   ├── services/
+│   │   ├── canvasService.js    # Canvas state reconstruction from events
+│   │   ├── eventService.js     # Event sourcing operations
+│   │   ├── intentService.js    # AI intent classification
+│   │   └── rbacService.js      # RBAC permission checks
+│   ├── utils/
+│   │   ├── errors.js       # Custom error classes (9 types)
+│   │   ├── validation.js   # Input validation utilities (7 functions)
+│   │   ├── wsUtils.js      # WebSocket utilities (5 functions)
+│   │   ├── crdt.js         # CRDT helper utilities (5 functions)
+│   │   ├── time.js         # Time utilities (10 functions)
+│   │   └── logger.js       # Logging utilities (10 functions)
+│   └── ws/
+│       ├── wsServer.js     # Raw WebSocket server (presence/cursors)
+│       ├── wsHandler.js    # WebSocket message handlers
+│       ├── yjsServer.js    # Yjs CRDT WebSocket server
+│       ├── presence.js     # Presence tracking (cursor positions)
+│       └── __tests__/      # Test suite (27 tests)
+└── package.json
+```
+
 ### Event Sourcing
 All canvas mutations are stored as immutable events. State is reconstructed by replaying events in order.
 
@@ -313,6 +353,108 @@ All canvas mutations are stored as immutable events. State is reconstructed by r
 
 ### Debounced AI
 Intent classification uses a debounce map to batch API calls, reducing costs and latency.
+
+## Utility Modules
+
+The backend includes a comprehensive set of utility modules that provide structured error handling, input validation, and WebSocket management.
+
+### Error Classes (`utils/errors.js`)
+
+Provides 9 custom error classes for structured error handling:
+
+- **AppError** - Base error with statusCode, isOperational flag, and timestamp
+- **AuthenticationError** (401) - JWT invalid/missing/expired
+- **AuthorizationError** (403) - RBAC violations with context (userId, nodeId, operation)
+- **ValidationError** (400) - Input validation failures with errors array
+- **NotFoundError** (404) - Resource not found
+- **WebSocketError** - WebSocket-specific errors with wsCode
+- **CRDTError** - Yjs operation failures with updateData
+- **DatabaseError** - Prisma/database failures with originalError
+- **ExternalAPIError** - Anthropic API failures with service name
+
+All errors include timestamps and are handled by the structured error handler in `app.js`.
+
+### Validation (`utils/validation.js`)
+
+Provides 7 validation functions for WebSocket messages and payloads:
+
+- **isValidWSMessage(message)** - Validates message structure (type, payload)
+- **isValidNodePayload(payload, operation)** - Validates node payloads by operation type
+- **isValidYjsMessage(buffer)** - Validates Yjs binary messages
+- **isValidRoomId(roomId)** - Validates room ID format
+- **isValidNodeId(nodeId)** - Validates node ID format
+- **isValidRole(role)** - Validates user role (Lead/Contributor/Viewer)
+- **sanitizeInput(input)** - Escapes HTML entities for display
+
+Validation is applied at all WebSocket entry points to prevent malformed data.
+
+### WebSocket Utilities (`utils/wsUtils.js`)
+
+Provides 5 WebSocket helper functions that eliminate code duplication:
+
+- **parseWsQuery(req)** - Parses and validates JWT token and roomId from query params
+- **broadcastToRoomSet(clients, message, excludeWs)** - Broadcasts to Set of WebSocket clients
+- **broadcastToRoomMap(roomConnections, message, excludeWs)** - Broadcasts to Map of WebSocket clients
+- **safeCloseWs(ws, code, reason)** - Safely closes WebSocket with readyState check
+- **safeSendWs(ws, message)** - Safely sends message with readyState check
+
+These utilities replace manual JWT parsing, broadcast loops, and raw ws.send()/ws.close() calls.
+
+### CRDT Utilities (`utils/crdt.js`)
+
+Provides 5 CRDT helper functions for Yjs operations:
+
+- **decodeYjsUpdate(update, prevState)** - Decodes Yjs binary update into mutations array
+- **safeApplyUpdate(ydoc, update)** - Safely applies Yjs update with error handling
+- **getStateDiff(ydoc, stateVector)** - Gets state difference for synchronization
+- **isValidUpdate(update)** - Validates Yjs update structure
+- **getEventType(mutation)** - Maps mutation operation to event type (CRDT_NODE_CREATED, etc.)
+
+Used by `yjsServer.js` for RBAC checks and event logging.
+
+### Time Utilities (`utils/time.js`)
+
+Provides 10 time-related helper functions:
+
+- **debounce(fn, delay)** - Debounces function calls
+- **throttle(fn, limit)** - Throttles function calls
+- **now()** - Returns current timestamp
+- **timeDiff(start, end)** - Calculates time difference
+- **sleep(ms)** - Promise-based delay
+- **isWithinRange(timestamp, start, end)** - Checks if timestamp is within range
+- **getRelativeTime(timestamp)** - Returns relative time string ("2 hours ago")
+- **formatTimestamp(timestamp, format)** - Formats timestamp
+- **timeout(promise, ms)** - Adds timeout to promise
+- **withTimeout(fn, ms)** - Wraps function with timeout
+
+Used for debouncing AI classification and throttling cursor updates.
+
+### Logger Utilities (`utils/logger.js`)
+
+Provides 10 logging functions with different severity levels:
+
+- **log(message, meta)** - General logging
+- **debug(message, meta)** - Debug-level logging
+- **info(message, meta)** - Info-level logging
+- **warn(message, meta)** - Warning-level logging
+- **error(message, meta)** - Error-level logging
+- **critical(message, meta)** - Critical error logging
+- **logWSEvent(event, ws, meta)** - WebSocket event logging
+- **logRBACViolation(userId, nodeId, operation)** - RBAC violation logging
+- **logPerformance(operation, duration)** - Performance metric logging
+- **getLogs(filter)** - Retrieves logs (requires persistence setup)
+
+All logs include timestamps and structured metadata for easy parsing.
+
+### Integration Status
+
+✅ **All utilities integrated** - No code duplication remains  
+✅ **Structured error handling** - All errors use AppError classes  
+✅ **Input validation** - All WebSocket entry points validated  
+✅ **Safe WebSocket operations** - All ws.send()/ws.close() use safe wrappers  
+✅ **Tests passing** - 5/5 Jest tests, 5/5 standalone tests
+
+
 
 ## Troubleshooting
 

@@ -18,6 +18,8 @@ const WebSocket = require('ws');
 const eventService = require('../services/eventService');
 const rbacService = require('../services/rbacService');
 const intentService = require('../services/intentService');
+const { isValidWSMessage, isValidNodePayload } = require('../utils/validation');
+const { ValidationError } = require('../utils/errors');
 
 /**
  * Handle WebSocket message
@@ -27,6 +29,12 @@ const intentService = require('../services/intentService');
  */
 async function handleMessage(ws, message, broadcast) {
   try {
+    // Validate message structure
+    const validation = isValidWSMessage(message);
+    if (!validation.valid) {
+      return sendError(ws, `Invalid message: ${validation.errors.join(', ')}`);
+    }
+
     const { type, payload, nodeId } = message;
 
     // Use authenticated user info and roomId from WebSocket (prevents room ID spoofing)
@@ -69,6 +77,12 @@ async function handleMessage(ws, message, broadcast) {
  */
 async function handleNodeCreate(ws, user, payload, roomId, broadcast) {
   try {
+    // Validate payload structure
+    const validation = isValidNodePayload(payload, 'create');
+    if (!validation.valid) {
+      return sendError(ws, `Invalid payload: ${validation.errors.join(', ')}`);
+    }
+
     // Viewers cannot create nodes
     if (user.role === 'Viewer') {
       return sendError(ws, 'Viewers cannot create nodes');
@@ -105,6 +119,12 @@ async function handleNodeCreate(ws, user, payload, roomId, broadcast) {
  */
 async function handleNodeUpdate(ws, user, nodeId, payload, roomId, broadcast) {
   try {
+    // Validate payload structure
+    const validation = isValidNodePayload(payload, 'update');
+    if (!validation.valid) {
+      return sendError(ws, `Invalid payload: ${validation.errors.join(', ')}`);
+    }
+
     // RBAC check - can user mutate this node?
     const canMutate = await rbacService.canMutate(user.id, nodeId, 'update');
     
@@ -174,6 +194,12 @@ async function handleNodeDelete(ws, user, nodeId, roomId, broadcast) {
  */
 async function handleNodeMove(ws, user, nodeId, payload, roomId, broadcast) {
   try {
+    // Validate payload structure
+    const validation = isValidNodePayload(payload, 'move');
+    if (!validation.valid) {
+      return sendError(ws, `Invalid payload: ${validation.errors.join(', ')}`);
+    }
+
     // RBAC check
     const canMutate = await rbacService.canMutate(user.id, nodeId, 'update');
     

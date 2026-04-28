@@ -6,10 +6,13 @@
 
 const WebSocket = require('ws');
 const Y = require('yjs');
-const jwt = require('jsonwebtoken');
 const rbacService = require('../services/rbacService');
 const eventService = require('../services/eventService');
 const intentService = require('../services/intentService');
+const { decodeYjsUpdate, getEventType } = require('../utils/crdt');
+const { parseWsQuery, broadcastToRoomMap, safeCloseWs } = require('../utils/wsUtils');
+const { AuthenticationError } = require('../utils/errors');
+const { isValidYjsMessage } = require('../utils/validation');
 
 // In-memory storage for Y.Doc instances per room
 // Map<roomId, Y.Doc>
@@ -55,103 +58,6 @@ function getYDoc(roomId) {
     console.log(`Created new Y.Doc for room: ${roomId}`);
   }
   return ydocs.get(roomId);
-}
-
-/**
- * Get event type for CRDT mutation
- * Requirements: 2.3
- * @param {Object} mutation - Mutation object with operation type
- * @returns {string} Event type
- */
-function getEventType(mutation) {
-  switch (mutation.operation) {
-    case 'create': return 'CRDT_NODE_CREATED';
-    case 'update': return 'CRDT_NODE_UPDATED';
-    case 'delete': return 'CRDT_NODE_DELETED';
-    case 'move':   return 'CRDT_NODE_MOVED';
-    default:       return 'CRDT_NODE_UPDATED';
-  }
-}
-
-/**
- * Decode Y.Doc binary update to extract node changes.
- * Seeds a temp doc with prevStateUpdate (state BEFORE the update), then applies
- * the update so the observer fires for exactly what changed.
- *
- * Requirements: 13.1, 13.2
- * @param {Uint8Array} update - Binary CRDT update (the delta)
- * @param {Uint8Array|null} prevStateUpdate - Full encoded state of ydoc BEFORE this update
- * @returns {Array<Object>} Array of mutations: [{ nodeId, operation, payload, previousValues }]
- */
-function decodeYjsUpdate(update, prevStateUpdate) {
-  const mutations = [];
-
-  try {
-    const tempDoc = new Y.Doc();
-    const tempMap = tempDoc.getMap('nodes');
-
-    // Seed the temp doc with the state that existed BEFORE this update
-    if (prevStateUpdate && prevStateUpdate.length > 0) {
-      Y.applyUpdate(tempDoc, prevStateUpdate);
-    }
-
-    const observer = (event) => {
-      event.changes.keys.forEach((change, nodeId) => {
-        let operation;
-        let payload;
-        let previousValues = null;
-
-        if (change.action === 'add') {
-          const currentValue = tempMap.get(nodeId);
-          operation = 'create';
-          payload = { nodeId, ...(currentValue || {}) };
-
-        } else if (change.action === 'delete') {
-          operation = 'delete';
-          previousValues = change.oldValue;
-          payload = { nodeId };
-
-        } else if (change.action === 'update') {
-          previousValues = change.oldValue;
-          const currentValue = tempMap.get(nodeId);
-
-          if (previousValues && currentValue) {
-            const allKeys = new Set([
-              ...Object.keys(previousValues),
-              ...Object.keys(currentValue),
-            ]);
-            const changedProps = [...allKeys].filter(
-              (key) =>
-                JSON.stringify(currentValue[key]) !==
-                JSON.stringify(previousValues[key])
-            );
-            operation =
-              changedProps.length > 0 &&
-              changedProps.every((k) => k === 'x' || k === 'y')
-                ? 'move'
-                : 'update';
-          } else {
-            operation = 'update';
-          }
-          payload = { nodeId, ...(currentValue || {}) };
-        }
-
-        if (operation) {
-          mutations.push({ nodeId, operation, payload, previousValues });
-        }
-      });
-    };
-
-    tempMap.observe(observer);
-    Y.applyUpdate(tempDoc, update);
-    tempMap.unobserve(observer);
-    tempDoc.destroy();
-
-  } catch (error) {
-    console.error('Error decoding Yjs update:', error);
-  }
-
-  return mutations;
 }
 
 /**
@@ -245,31 +151,17 @@ async function logYjsMutations(mutations, roomId, userId) {
  */
 function authenticateYjsConnection(ws, req) {
   try {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const token = url.searchParams.get('token');
-    const roomId = url.searchParams.get('roomId');
-
-    if (!token) {
-      console.warn('Yjs connection rejected: No token provided');
-      ws.close(1008, 'Token required');
-      return false;
-    }
-    if (!roomId) {
-      console.warn('Yjs connection rejected: No roomId provided');
-      ws.close(1008, 'RoomId required');
-      return false;
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    ws.userId = decoded.id;
-    ws.userRole = decoded.role;
+    const { user, roomId } = parseWsQuery(req);
+    
+    ws.userId = user.id;
+    ws.userRole = user.role;
     ws.roomId = roomId;
 
     console.log(`Yjs connection authenticated: User ${ws.userId} (${ws.userRole}) joined room ${roomId}`);
     return true;
   } catch (error) {
     console.error('Yjs authentication failed:', error.message);
-    ws.close(1008, 'Invalid token');
+    safeCloseWs(ws, 1008, error.message);
     return false;
   }
 }
@@ -299,19 +191,13 @@ function handleYjsConnection(ws, req) {
       // Broadcast update to all other clients in the room
       const connections = roomConnections.get(roomId);
       if (connections) {
-        connections.forEach((_, clientWs) => {
-          // Don't send to the client that originated the update
-          const isOriginator = origin && origin.ws && origin.ws === clientWs;
-          
-          if (!isOriginator && clientWs.readyState === WebSocket.OPEN) {
-            // Send binary Yjs update message (messageType = 0, syncMessageType = 2 for incremental update)
-            const message = Buffer.concat([
-              Buffer.from([0, 2]), // messageType: 0 = sync, syncMessageType: 2 = Update
-              Buffer.from(update)
-            ]);
-            clientWs.send(message);
-          }
-        });
+        // Send binary Yjs update message (messageType = 0, syncMessageType = 2 for incremental update)
+        const message = Buffer.concat([
+          Buffer.from([0, 2]), // messageType: 0 = sync, syncMessageType: 2 = Update
+          Buffer.from(update)
+        ]);
+        
+        broadcastToRoomMap(connections, message, origin?.ws);
       }
 
       // Handle event logging and RBAC is done in ws.on('message') with correct prevStateUpdate
@@ -333,7 +219,12 @@ function handleYjsConnection(ws, req) {
     try {
       const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
       
-      if (buffer.length === 0) return;
+      // Validate binary message
+      const validation = isValidYjsMessage(buffer);
+      if (!validation.valid) {
+        console.warn(`Invalid Yjs message from user ${userId}:`, validation.error);
+        return;
+      }
 
       const messageType = buffer[0];
 
@@ -456,7 +347,5 @@ module.exports = {
   authenticateYjsConnection,
   checkYjsMutations,
   logYjsMutations,
-  decodeYjsUpdate,
-  getEventType,
   ydocs, // Export for testing
 };

@@ -5,6 +5,8 @@
 // to be installed. It tests the authentication function in isolation.
 
 const jwt = require('jsonwebtoken');
+const { parseWsQuery } = require('../../utils/wsUtils');
+const { AuthenticationError } = require('../../utils/errors');
 
 // Set JWT_SECRET for testing
 process.env.JWT_SECRET = 'test_secret_key';
@@ -35,42 +37,27 @@ class MockRequest {
 }
 
 // Standalone authentication function for testing
-// This is the same logic as in yjsServer.js
+// This uses the same logic as in yjsServer.js via parseWsQuery
 function authenticateYjsConnection(ws, req) {
   try {
-    // Parse query parameters from URL
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const token = url.searchParams.get('token');
-    const roomId = url.searchParams.get('roomId');
-
-    // Check if token is provided
-    if (!token) {
-      console.warn('Yjs connection rejected: No token provided');
-      ws.close(1008, 'Token required');
-      return false;
-    }
-
-    // Check if roomId is provided
-    if (!roomId) {
-      console.warn('Yjs connection rejected: No roomId provided');
-      ws.close(1008, 'RoomId required');
-      return false;
-    }
-
-    // Verify JWT token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
+    const { user, roomId } = parseWsQuery(req);
+    
     // Attach user metadata to WebSocket connection
-    ws.userId = decoded.id;
-    ws.userRole = decoded.role;
+    ws.userId = user.id;
+    ws.userRole = user.role;
     ws.roomId = roomId;
 
     console.log(`Yjs connection authenticated: User ${ws.userId} (${ws.userRole}) joined room ${roomId}`);
     return true;
   } catch (error) {
-    // JWT verification failed
+    // Authentication failed
     console.error('Yjs authentication failed:', error.message);
-    ws.close(1008, 'Invalid token');
+    
+    if (error instanceof AuthenticationError) {
+      ws.close(1008, error.message);
+    } else {
+      ws.close(1008, 'Authentication failed');
+    }
     return false;
   }
 }
@@ -154,12 +141,13 @@ function testAuthentication() {
   const req5 = new MockRequest(`/yjs?token=${expiredToken}&roomId=room_xyz`);
   const result5 = authenticateYjsConnection(ws5, req5);
   
-  if (!result5 && ws5.closed && ws5.closeCode === 1008 && ws5.closeReason === 'Invalid token') {
+  if (!result5 && ws5.closed && ws5.closeCode === 1008 && ws5.closeReason === 'Token expired') {
     console.log('✅ PASS: Expired token rejected correctly');
     console.log(`   - closeCode: ${ws5.closeCode}, closeReason: ${ws5.closeReason}\n`);
     passedTests++;
   } else {
-    console.log('❌ FAIL: Expired token not handled correctly\n');
+    console.log('❌ FAIL: Expired token not handled correctly');
+    console.log(`   - Expected closeReason: 'Token expired', Got: '${ws5.closeReason}'\n`);
   }
 
   console.log('='.repeat(50));
