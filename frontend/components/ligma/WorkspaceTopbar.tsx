@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell, Plus, Sparkles, LogOut, Settings, User as UserIcon, Check, Search } from "lucide-react";
@@ -26,15 +26,25 @@ type Props = {
 export function WorkspaceTopbar({ label = "/home", title = "Welcome back", showSearch = true }: Props) {
   const demoUser = useDemo(s => s.user);
   const { user: authUser, logout } = useAuth();
-  const user = authUser || demoUser;
   const notifications = useDemo(s => s.notifications);
   const sessions = useDemo(s => s.sessions);
-  const unread = notifications.filter(n => !n.read).length;
+  const [mounted, setMounted] = useState(false);
   const [openNew, setOpenNew] = useState(false);
   const [newName, setNewName] = useState("");
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const router = useRouter();
+
+  // Avoid hydration mismatch — only read user data after mount
+  const user = mounted ? (authUser || demoUser) : null;
+  const initials = user?.name ? user.name.split(" ").slice(0, 2).map((p: string) => p[0]).join("").toUpperCase() : "?";
+  const firstName = user?.name ? user.name.split(" ")[0] : "";
+
+  useState(() => { setMounted(true); });
+
+  useEffect(() => { setMounted(true); }, []);
+
+  const unread = notifications.filter(n => !n.read).length;
 
   const filtered = search
     ? sessions.filter(s => !s.trashed && s.name.toLowerCase().includes(search.toLowerCase())).slice(0, 6)
@@ -59,7 +69,7 @@ export function WorkspaceTopbar({ label = "/home", title = "Welcome back", showS
       <div className="px-8 py-4 flex items-center gap-4">
         <div className="min-w-0">
           <div className="zine-label">{label}</div>
-          <h1 className="text-2xl font-bold tracking-tight truncate">{title}{title === "Welcome back" && user?.name ? `, ${user.name.split(" ")[0]}` : ""}</h1>
+          <h1 className="text-2xl font-bold tracking-tight truncate">{title}{title === "Welcome back" && firstName ? `, ${firstName}` : ""}</h1>
         </div>
 
         {showSearch && (
@@ -147,7 +157,7 @@ export function WorkspaceTopbar({ label = "/home", title = "Welcome back", showS
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="h-9 w-9 rounded-full bg-gradient-blueprint flex items-center justify-center font-bold text-primary-foreground text-xs hover:opacity-90 transition-opacity">
-              {user?.name ? user.name.split(" ").slice(0, 2).map(p => p[0]).join("").toUpperCase() : "?"}
+              {initials}
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
@@ -155,7 +165,6 @@ export function WorkspaceTopbar({ label = "/home", title = "Welcome back", showS
               <div className="font-medium">{user?.name || "Guest"}</div>
               <div className="text-xs text-muted-foreground font-normal truncate">{user?.email || ""}</div>
             </DropdownMenuLabel>
-            <DropdownMenuSeparator />
             <DropdownMenuItem asChild><Link href="/settings"><UserIcon className="h-3.5 w-3.5"/> Profile</Link></DropdownMenuItem>
             <DropdownMenuItem asChild><Link href="/settings"><Settings className="h-3.5 w-3.5"/> Settings</Link></DropdownMenuItem>
             <DropdownMenuSeparator />

@@ -13,19 +13,22 @@ const { getPrimaryWorkspace } = require('../services/workspaceService');
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const client = getSupabaseClientForToken(req.accessToken);
+    if (!client) return res.json({ rooms: [] });
+
     const { data, error } = await client
       .from('rooms')
       .select('*')
       .order('created_at', { ascending: false });
 
     if (error) {
-      return res.status(500).json({ error: 'Failed to fetch rooms' });
+      console.warn('Rooms query error (returning empty):', error.message);
+      return res.json({ rooms: [] });
     }
 
     res.json({ rooms: data || [] });
   } catch (error) {
     console.error('Get rooms error:', error);
-    res.status(500).json({ error: 'Failed to fetch rooms' });
+    res.json({ rooms: [] });
   }
 });
 

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Home, Clock, Share2, LayoutTemplate, FolderKanban, Trash2, Settings, Plus, Sparkles } from "lucide-react";
 import { Logo } from "./Logo";
 import { cn } from "@/lib/utils";
@@ -31,8 +32,16 @@ export function AppSidebar() {
   const router = useRouter();
   const demoUser = useDemo(s => s.user);
   const { user: authUser } = useAuth();
-  const user = authUser || demoUser;
-  
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  // Only use real user data after mount to avoid hydration mismatch
+  const user = mounted ? (authUser || demoUser) : null;
+  const initials = user?.name ? user.name.split(" ").slice(0, 2).map((p: string) => p[0]).join("").toUpperCase() : "?";
+  const displayName = user?.name || "Guest";
+  const displayRole = user?.role || "viewer";
+
   return (
     <aside className="w-64 shrink-0 border-r-2 border-foreground/10 bg-sidebar h-screen sticky top-0 flex flex-col">
       <div className="px-5 py-4 border-b border-sidebar-border">
@@ -42,11 +51,11 @@ export function AppSidebar() {
       <div className="px-3 py-4">
         <button onClick={() => router.push("/settings")} className="w-full flex items-center gap-3 rounded-lg p-2 hover:bg-sidebar-accent transition-colors text-left">
           <div className="h-9 w-9 rounded-full bg-gradient-blueprint flex items-center justify-center font-bold text-primary-foreground text-sm">
-            {user?.name ? user.name.split(" ").slice(0, 2).map(p => p[0]).join("").toUpperCase() : "?"}
+            {initials}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium truncate">{user?.name || "Guest"}</div>
-            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground truncate">{user?.role || "viewer"}</div>
+            <div className="text-sm font-medium truncate">{displayName}</div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground truncate">{displayRole}</div>
           </div>
         </button>
       </div>

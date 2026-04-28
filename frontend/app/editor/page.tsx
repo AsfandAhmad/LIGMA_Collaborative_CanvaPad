@@ -10,10 +10,11 @@ import {
   Users, Search, Command, Play, ChevronRight, X, CheckCircle2, Circle,
   Plus, Filter, Zap
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { useCanvas } from "@/lib/hooks/useCanvas";
+import { CanvasWrapper } from "@/components/canvas/CanvasWrapper";
 import { usePresence } from "@/lib/hooks/usePresence";
 import { useTasks } from "@/lib/hooks/useTasks";
 import { useAuth } from "@/lib/auth-context";
@@ -77,6 +78,7 @@ function EditorContent() {
     status: canvasStatus,
     addNode,
     updateNode,
+    deleteNode,
     setNodeLocked,
   } = useCanvas({ roomId });
 
@@ -92,17 +94,15 @@ function EditorContent() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode, setMode] = useState<"canvas" | "split" | "review">("split");
-  const [activeTool, setActiveTool] = useState(2);
-  const [zoom, setZoom] = useState(100);
 
-  // Convert canvas nodes to Note format
-  const notes: Note[] = canvasNodes.map(node => ({
+  // Convert canvas nodes to Note format (for task board only)
+  const notes: Note[] = canvasNodes.filter((n: any) => n.type === 'sticky').map((node: any) => ({
     id: node.id,
     text: node.content?.text || '',
     intent: node.intent || 'action',
     color: node.color || intentToColor[node.intent || 'action'],
-    x: node.position.x,
-    y: node.position.y,
+    x: node.x || 0,
+    y: node.y || 0,
     rot: node.rotation || 0,
     author: {
       name: node.createdBy,
@@ -115,35 +115,6 @@ function EditorContent() {
 
   const selected = notes.find(n => n.id === selectedId);
   const linkedTaskNotes = notes.filter(n => n.taskStatus);
-
-  // Track cursor movement
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (presenceConnected) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      updateCursor(x, y);
-    }
-  }, [presenceConnected, updateCursor]);
-
-  // Add a new sticky note
-  const handleAddNote = useCallback(() => {
-    if (!user) return;
-    
-    const newNodeId = addNode({
-      type: 'sticky',
-      content: { text: 'New note' },
-      position: { x: 100 + Math.random() * 200, y: 100 + Math.random() * 200 },
-      rotation: Math.random() * 6 - 3,
-      intent: 'action',
-      color: 'bg-sticky-yellow',
-    });
-
-    toast({
-      title: 'Note added',
-      description: 'Click to edit the note',
-    });
-  }, [user, addNode]);
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
@@ -197,120 +168,21 @@ function EditorContent() {
       </header>
 
       <div className="flex-1 flex min-h-0">
-        {/* LEFT TOOLBAR */}
-        <aside className="w-14 shrink-0 border-r-2 border-foreground/10 bg-card flex flex-col items-center py-3 gap-1">
-          {tools.map((T, i) => (
-            <button key={i} onClick={() => setActiveTool(i)} className={cn(
-              "h-9 w-9 rounded-lg flex items-center justify-center transition-all relative group",
-              activeTool === i
-                ? "bg-foreground text-background"
-                : T.highlight
-                  ? "bg-warning/30 hover:bg-warning/50 text-foreground"
-                  : "hover:bg-muted text-foreground"
-            )}>
-              <T.icon className="h-4 w-4" />
-              {T.k && (
-                <span className="absolute left-full ml-2 px-1.5 py-0.5 rounded font-mono text-[10px] bg-foreground text-background opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
-                  {T.k}
-                </span>
-              )}
-            </button>
-          ))}
-        </aside>
 
         {/* CANVAS */}
         <section 
-          className={cn("relative bg-paper bg-blueprint-grid overflow-hidden", mode === "split" ? "flex-1" : "flex-1")}
-          onMouseMove={handleMouseMove}
+          className={cn("relative bg-paper overflow-hidden", mode === "split" ? "flex-1" : "flex-1")}
         >
-          {/* Section frame */}
-          <div className="absolute left-10 top-12 w-[640px] h-[400px] rounded-xl border-2 border-dashed border-primary/40 bg-primary/[0.02] pointer-events-none">
-            <span className="absolute -top-3 left-4 bg-background px-2 font-hand text-lg text-primary">Architecture decisions</span>
-            <span className="absolute -bottom-3 right-4 bg-background px-2 font-mono text-[10px] uppercase tracking-wider text-primary/70">{liveCursors.length} editing</span>
-          </div>
-
-          {/* Notes */}
-          {notes.map(n => {
-            const meta = intentMeta[n.intent];
-            const isSelected = selectedId === n.id;
-            return (
-              <button
-                key={n.id}
-                onClick={() => setSelectedId(n.id)}
-                style={{ left: n.x, top: n.y, transform: `rotate(${n.rot}deg)` }}
-                className={cn(
-                  "absolute w-44 text-left rounded-lg p-3 border shadow-sticky transition-all",
-                  n.color, "border-foreground/15 hover:scale-[1.03]",
-                  isSelected && "ring-2 ring-primary ring-offset-2 ring-offset-background z-20 animate-pulse-ring"
-                )}
-              >
-                {n.locked && (
-                  <span className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-foreground text-background flex items-center justify-center">
-                    <Lock className="h-2.5 w-2.5"/>
-                  </span>
-                )}
-                <div className="font-hand text-base leading-tight text-foreground">{n.text}</div>
-                <div className="mt-2 flex items-center justify-between">
-                  <span className={cn("font-mono text-[9px] uppercase tracking-wider", meta.color)}>● {meta.label}</span>
-                  <span className={`h-4 w-4 rounded-full ${n.author.color} text-background text-[8px] font-bold flex items-center justify-center`}>{n.author.name[0]}</span>
-                </div>
-              </button>
-            );
-          })}
-
-          {/* Connector arrows */}
-          <svg className="absolute inset-0 w-full h-full pointer-events-none">
-            <defs>
-              <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M0,0 L10,5 L0,10 z" fill="hsl(var(--primary))" />
-              </marker>
-            </defs>
-            <path d="M210 320 Q 320 360 380 330" fill="none" stroke="hsl(var(--primary))" strokeWidth="2" strokeDasharray="4 4" markerEnd="url(#arr)" />
-          </svg>
-
-          {/* Live cursors */}
-          {liveCursors.map(c => (
-            <div key={c.userId} className="absolute pointer-events-none transition-all duration-100" style={{ left: c.x, top: c.y }}>
-              <svg className="h-5 w-5" style={{ color: c.userColor }} viewBox="0 0 24 24" fill="currentColor"><path d="M3 2 L3 22 L9 16 L13 22 L16 19 L12 14 L20 13 Z"/></svg>
-              <span className="ml-3 -mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium text-background" style={{ backgroundColor: c.userColor }}>{c.userName}</span>
-            </div>
-          ))}
-
-          {/* Bottom controls */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-xl border-2 border-foreground/15 bg-card px-2 py-1.5 shadow-soft">
-            <Button variant="ghost" size="icon-sm" onClick={() => setZoom(z => Math.max(25, z - 10))}>−</Button>
-            <span className="font-mono text-xs px-2 w-14 text-center">{zoom}%</span>
-            <Button variant="ghost" size="icon-sm" onClick={() => setZoom(z => Math.min(200, z + 10))}>+</Button>
-            <span className="w-px h-4 bg-border mx-1" />
-            <Button variant="ghost" size="sm" className="text-xs" onClick={() => setZoom(100)}><Frame className="h-3 w-3"/> Fit</Button>
-          </div>
-
-          {/* Bottom timeline */}
-          <div className="absolute bottom-20 left-4 right-4 rounded-xl border-2 border-foreground/15 bg-card/95 backdrop-blur p-3 shadow-soft">
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="icon-sm"><Play className="h-3.5 w-3.5"/></Button>
-              <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">activity timeline</span>
-              <div className="flex-1 relative h-8">
-                <div className="absolute inset-x-0 top-1/2 h-0.5 bg-foreground/15" />
-                {[
-                  { p: 5, c: "bg-success", l: "joined" },
-                  { p: 18, c: "bg-coral", l: "stickies" },
-                  { p: 32, c: "bg-intent-decision", l: "decision" },
-                  { p: 48, c: "bg-primary", l: "lock" },
-                  { p: 62, c: "bg-warning", l: "AI" },
-                  { p: 78, c: "bg-intent-action", l: "task" },
-                  { p: 92, c: "bg-success", l: "now" },
-                ].map((e, i) => (
-                  <div key={i} className="absolute top-0 group" style={{ left: `${e.p}%` }}>
-                    <span className={`block h-3 w-3 rounded-full ${e.c} ring-2 ring-card mt-2.5`} />
-                    <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 translate-y-full font-mono text-[9px] text-muted-foreground opacity-0 group-hover:opacity-100 whitespace-nowrap">{e.l}</span>
-                  </div>
-                ))}
-                <div className="absolute top-1.5 h-5 w-0.5 bg-primary" style={{ left: "92%" }} />
-              </div>
-              <span className="font-mono text-[10px] text-muted-foreground">25:14</span>
-            </div>
-          </div>
+          <CanvasWrapper
+            nodes={canvasNodes as any}
+            onNodeAdd={addNode as any}
+            onNodeUpdate={updateNode}
+            onNodeDelete={deleteNode}
+            cursors={liveCursors}
+            onCursorMove={updateCursor}
+            externalSelectedId={selectedId}
+            onSelectionChange={(ids) => setSelectedId(ids[0] ?? null)}
+          />
         </section>
 
         {/* SPLIT — Task Board */}

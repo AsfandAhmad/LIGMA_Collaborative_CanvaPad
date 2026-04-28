@@ -3,21 +3,10 @@
 
 import * as Y from 'yjs';
 import { YjsProvider } from './yjsProvider';
+import type { CanvasNode as ExtendedCanvasNode } from '../../types/canvas';
 
-export interface CanvasNode {
-  id: string;
-  type: 'sticky' | 'text' | 'shape' | 'image';
-  content: any;
-  position: { x: number; y: number };
-  rotation?: number;
-  intent?: 'action' | 'decision' | 'question' | 'reference';
-  locked?: boolean;
-  createdBy: string;
-  createdAt: string;
-  color?: string;
-  taskStatus?: 'backlog' | 'todo' | 'in_progress' | 'done';
-  assignee?: string;
-}
+// Re-export the extended type as CanvasNode for backward compatibility
+export type CanvasNode = ExtendedCanvasNode;
 
 export class SyncManager {
   private doc: Y.Doc;
@@ -144,6 +133,37 @@ export class SyncManager {
     const node = this.nodesMap.get(nodeId);
     if (node) {
       this.nodesMap.set(nodeId, { ...node, taskStatus: status });
+    }
+  }
+
+  /**
+   * Partial update — merges any fields into existing node
+   * Used by canvas engine for position, size, points, etc.
+   */
+  public updateNode(nodeId: string, updates: Partial<CanvasNode>) {
+    const node = this.nodesMap.get(nodeId);
+    if (node) {
+      this.nodesMap.set(nodeId, { ...node, ...updates });
+    }
+  }
+
+  /**
+   * Update freehand drawing points (called live during drawing)
+   */
+  public updateFreeDrawPoints(nodeId: string, points: number[][]) {
+    const node = this.nodesMap.get(nodeId);
+    if (node && node.type === 'freedraw') {
+      this.nodesMap.set(nodeId, { ...node, points });
+    }
+  }
+
+  /**
+   * Batch position update for smooth dragging (avoids full object clone overhead)
+   */
+  public updateNodeXY(nodeId: string, x: number, y: number) {
+    const node = this.nodesMap.get(nodeId);
+    if (node) {
+      this.nodesMap.set(nodeId, { ...node, x, y });
     }
   }
 

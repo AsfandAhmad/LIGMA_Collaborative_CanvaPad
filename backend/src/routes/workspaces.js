@@ -8,6 +8,8 @@ const { getPrimaryWorkspace } = require('../services/workspaceService');
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const client = getSupabaseClientForToken(req.accessToken);
+    if (!client) return res.json({ workspaces: [] });
+
     const { data, error } = await client
       .from('workspace_members')
       .select('role, workspaces:workspace_id (id, name, slug, owner_id, created_at)')
@@ -15,7 +17,8 @@ router.get('/', authenticateToken, async (req, res) => {
       .order('joined_at', { ascending: true });
 
     if (error) {
-      return res.status(500).json({ error: 'Failed to fetch workspaces' });
+      console.warn('Workspaces query error (returning empty):', error.message);
+      return res.json({ workspaces: [] });
     }
 
     const workspaces = (data || []).map((row) => ({
@@ -26,7 +29,7 @@ router.get('/', authenticateToken, async (req, res) => {
     res.json({ workspaces });
   } catch (error) {
     console.error('Get workspaces error:', error);
-    res.status(500).json({ error: 'Failed to fetch workspaces' });
+    res.json({ workspaces: [] });
   }
 });
 
@@ -68,10 +71,10 @@ router.post('/', authenticateToken, async (req, res) => {
 router.get('/primary', authenticateToken, async (req, res) => {
   try {
     const workspace = await getPrimaryWorkspace(req.user.id, req.accessToken);
-    res.json({ workspace });
+    res.json({ workspace: workspace || null });
   } catch (error) {
-    console.error('Get primary workspace error:', error);
-    res.status(500).json({ error: 'Failed to fetch workspace' });
+    console.warn('Get primary workspace error (returning null):', error.message);
+    res.json({ workspace: null });
   }
 });
 
@@ -98,27 +101,30 @@ router.get('/:workspaceId', authenticateToken, async (req, res) => {
 router.get('/:workspaceId/members', authenticateToken, async (req, res) => {
   try {
     const client = getSupabaseClientForToken(req.accessToken);
+    if (!client) return res.json({ members: [] });
+
     const { data, error } = await client
       .from('workspace_members')
-      .select('user_id, role, joined_at, users:user_id (id, email, display_name, avatar_url)')
+      .select('user_id, role, joined_at')
       .eq('workspace_id', req.params.workspaceId)
       .order('joined_at', { ascending: true });
 
     if (error) {
-      return res.status(500).json({ error: 'Failed to fetch members' });
+      console.warn('Members query error (returning empty):', error.message);
+      return res.json({ members: [] });
     }
 
     const members = (data || []).map((row) => ({
       id: row.user_id,
       role: row.role,
       joinedAt: row.joined_at,
-      profile: row.users,
+      profile: null,
     }));
 
     res.json({ members });
   } catch (error) {
     console.error('Get members error:', error);
-    res.status(500).json({ error: 'Failed to fetch members' });
+    res.json({ members: [] });
   }
 });
 

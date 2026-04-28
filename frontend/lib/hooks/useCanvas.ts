@@ -2,7 +2,8 @@
 // React hook for accessing and manipulating canvas data via Yjs
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { SyncManager, type CanvasNode } from '../yjs/syncManager';
+import { SyncManager } from '../yjs/syncManager';
+import type { CanvasNode } from '../../types/canvas';
 import { useAuth } from '../auth-context';
 
 let globalSyncManager: SyncManager | null = null;
@@ -127,13 +128,7 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
   // Update a node
   const updateNode = useCallback((nodeId: string, updates: Partial<Omit<CanvasNode, 'id'>>) => {
     if (!syncManagerRef.current) return;
-
-    const existingNode = syncManagerRef.current.getNode(nodeId);
-    if (!existingNode) return;
-
-    const updatedNode = { ...existingNode, ...updates };
-    delete (updatedNode as any).id; // Remove id from the update
-    syncManagerRef.current.setNode(nodeId, updatedNode);
+    syncManagerRef.current.updateNode(nodeId, updates as Partial<CanvasNode>);
   }, []);
 
   // Delete a node

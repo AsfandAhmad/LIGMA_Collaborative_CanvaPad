@@ -182,9 +182,13 @@ export interface Task {
 
 export const tasksApi = {
   getTasks: async (roomId: string): Promise<Task[]> => {
-    const res = await fetchWithAuth(`/api/tasks/${roomId}`);
-    // Backend returns { tasks: [...] }
-    return res.tasks ?? res;
+    try {
+      const res = await fetchWithAuth(`/api/tasks/${roomId}`);
+      return res.tasks ?? res ?? [];
+    } catch {
+      // Silently return empty — tasks are non-critical
+      return [];
+    }
   },
 
   updateTaskStatus: async (
@@ -221,8 +225,12 @@ export const roomsApi = {
   },
 
   getRooms: async (): Promise<Room[]> => {
-    const res = await fetchWithAuth('/api/rooms');
-    return res.rooms ?? res;
+    try {
+      const res = await fetchWithAuth('/api/rooms');
+      return res.rooms ?? res ?? [];
+    } catch {
+      return [];
+    }
   },
 
   getRoom: async (roomId: string): Promise<Room> => {
@@ -258,12 +266,20 @@ export interface WorkspaceMember {
 
 export const workspacesApi = {
   getWorkspaces: async (): Promise<Workspace[]> => {
-    const res = await fetchWithAuth('/api/workspaces');
-    return res.workspaces ?? res;
+    try {
+      const res = await fetchWithAuth('/api/workspaces');
+      return res.workspaces ?? res ?? [];
+    } catch {
+      return [];
+    }
   },
   getPrimary: async (): Promise<Workspace | null> => {
-    const res = await fetchWithAuth('/api/workspaces/primary');
-    return res.workspace ?? null;
+    try {
+      const res = await fetchWithAuth('/api/workspaces/primary');
+      return res.workspace ?? null;
+    } catch {
+      return null;
+    }
   },
   createWorkspace: async (name: string, slug?: string): Promise<Workspace> => {
     const res = await fetchWithAuth('/api/workspaces', {
