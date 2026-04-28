@@ -9,21 +9,46 @@
 require('dotenv').config();
 const http = require('http');
 const app = require('./app');
-const { initWebSocketServer } = require('./ws/wsServer');
-const { initYjsServer } = require('./ws/yjsServer');
+const WebSocket = require('ws');
 
 const PORT = process.env.PORT || 4000;
 
 // Create HTTP server
 const server = http.createServer(app);
 
-// Initialize both WebSocket servers on the same HTTP server instance
-// Raw WebSocket server for presence and events on /ws
-initWebSocketServer(server);
-console.log('✅ Raw WebSocket server initialized on /ws');
+// Create WebSocket servers with noServer: true for manual upgrade handling
+const wsServer = new WebSocket.Server({ noServer: true });
+const yjsServer = new WebSocket.Server({ noServer: true });
 
-// Yjs WebSocket server for CRDT synchronization on /yjs
-initYjsServer(server);
+// Import connection handlers
+const { handleRawWSConnection } = require('./ws/wsServer');
+const { handleYjsConnection } = require('./ws/yjsServer');
+
+// Single upgrade router to handle both /ws and /yjs paths
+server.on('upgrade', (request, socket, head) => {
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  
+  if (url.pathname === '/ws') {
+    // Raw WebSocket for presence and events
+    wsServer.handleUpgrade(request, socket, head, (ws) => {
+      wsServer.emit('connection', ws, request);
+    });
+  } else if (url.pathname === '/yjs') {
+    // Yjs WebSocket for CRDT synchronization
+    yjsServer.handleUpgrade(request, socket, head, (ws) => {
+      yjsServer.emit('connection', ws, request);
+    });
+  } else {
+    // Unknown path - close connection
+    socket.destroy();
+  }
+});
+
+// Attach connection handlers
+wsServer.on('connection', handleRawWSConnection);
+yjsServer.on('connection', handleYjsConnection);
+
+console.log('✅ Raw WebSocket server initialized on /ws');
 console.log('✅ Yjs WebSocket server initialized on /yjs');
 
 // Start server

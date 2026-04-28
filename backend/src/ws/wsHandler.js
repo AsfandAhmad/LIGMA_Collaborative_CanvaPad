@@ -14,6 +14,7 @@
 //
 // CRITICAL: RBAC check happens HERE before every mutation
 
+const WebSocket = require('ws');
 const eventService = require('../services/eventService');
 const rbacService = require('../services/rbacService');
 const intentService = require('../services/intentService');
@@ -204,6 +205,8 @@ async function handleNodeMove(ws, user, nodeId, payload, roomId, broadcast) {
  * Send error message to client
  */
 function sendError(ws, message) {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  
   ws.send(JSON.stringify({
     type: 'ERROR',
     error: message,

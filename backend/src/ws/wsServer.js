@@ -17,22 +17,188 @@ const { updateCursor, broadcastCursor, getCursorSnapshot, removeCursor } = requi
 // Room management: roomId -> Set of WebSocket clients
 const rooms = new Map();
 
+// Track assigned colors per room: roomId -> Set of colors in use
+const roomColors = new Map();
+
 // Color palette for user cursors
 const COLOR_PALETTE = ['#FF5722', '#2196F3', '#4CAF50', '#FFC107', '#9C27B0', '#00BCD4', '#E91E63', '#673AB7'];
 
 /**
- * Assign a unique color to a user based on room size
+ * Assign a unique color to a user, avoiding duplicates in the same room
  * @param {string} roomId - Room identifier
  * @returns {string} Hex color code
  */
 function assignUserColor(roomId) {
+  if (!roomColors.has(roomId)) {
+    roomColors.set(roomId, new Set());
+  }
+  
+  const usedColors = roomColors.get(roomId);
+  
+  // Find first unused color
+  for (const color of COLOR_PALETTE) {
+    if (!usedColors.has(color)) {
+      usedColors.add(color);
+      return color;
+    }
+  }
+  
+  // All colors used, fallback to hash-based color
   const roomClients = rooms.get(roomId);
   const userCount = roomClients ? roomClients.size : 0;
   return COLOR_PALETTE[userCount % COLOR_PALETTE.length];
 }
 
 /**
- * Initialize WebSocket server
+ * Handle raw WebSocket connection (exported for use in index.js)
+ * @param {WebSocket} ws - WebSocket connection
+ * @param {http.IncomingMessage} req - HTTP request
+ */
+async function handleRawWSConnection(ws, req) {
+  try {
+    // Parse query parameters
+    const params = url.parse(req.url, true).query;
+    const token = params.token;
+    const roomId = params.roomId;
+
+    if (!token || !roomId) {
+      ws.close(1008, 'Token and roomId required');
+      return;
+    }
+
+    // Verify JWT token
+    let user;
+    try {
+      user = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (error) {
+      ws.close(1008, 'Invalid token');
+      return;
+    }
+
+    // Attach user info to WebSocket
+    ws.userId = user.id;
+    ws.userRole = user.role;
+    ws.roomId = roomId;
+    ws.userName = user.name || user.email;
+    ws.userColor = assignUserColor(roomId);
+
+    // Add client to room
+    if (!rooms.has(roomId)) {
+      rooms.set(roomId, new Set());
+    }
+    rooms.get(roomId).add(ws);
+
+    console.log(`User ${user.id} (${user.role}) joined room ${roomId}`);
+
+    // Send missed events if client provides lastEventId
+    const lastEventId = parseInt(params.lastEventId) || 0;
+    if (lastEventId > 0) {
+      const missedEvents = await eventService.getEvents(roomId, lastEventId);
+      ws.send(JSON.stringify({
+        type: 'SYNC',
+        events: missedEvents,
+      }));
+    }
+
+    // Broadcast user joined
+    broadcast(roomId, {
+      type: 'USER_JOINED',
+      userId: user.id,
+      userName: user.name || user.email,
+      role: user.role,
+    }, ws);
+
+    // Send current cursor positions to new joiner
+    const cursorSnapshot = getCursorSnapshot(roomId);
+    if (cursorSnapshot.length > 0) {
+      ws.send(JSON.stringify({
+        type: 'CURSOR_SNAPSHOT',
+        cursors: cursorSnapshot,
+      }));
+    }
+
+    // Handle incoming messages
+    ws.on('message', async (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        
+        // Handle CURSOR_MOVE messages
+        if (message.type === 'CURSOR_MOVE') {
+          const { x, y } = message.payload;
+          
+          // Update cursor position in presence map
+          const cursorData = updateCursor(
+            roomId,
+            ws.userId,
+            { x, y },
+            ws.userName,
+            ws.userColor
+          );
+          
+          // Broadcast cursor update to all clients except sender
+          broadcastCursor(roomId, ws.userId, cursorData, (roomId, msg) => {
+            broadcast(roomId, msg, ws);
+          });
+        } else {
+          // Handle other message types via wsHandler
+          await handleMessage(ws, message, broadcast);
+        }
+      } catch (error) {
+        console.error('Message parse error:', error);
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          error: 'Invalid message format',
+        }));
+      }
+    });
+
+    // Handle disconnection
+    ws.on('close', () => {
+      console.log(`User ${user.id} left room ${roomId}`);
+      
+      // Remove cursor from presence map
+      removeCursor(roomId, ws.userId);
+      
+      // Release user color
+      if (roomColors.has(roomId)) {
+        roomColors.get(roomId).delete(ws.userColor);
+        
+        // Clean up empty color set
+        if (roomColors.get(roomId).size === 0) {
+          roomColors.delete(roomId);
+        }
+      }
+      
+      // Remove from room
+      if (rooms.has(roomId)) {
+        rooms.get(roomId).delete(ws);
+        
+        // Clean up empty rooms
+        if (rooms.get(roomId).size === 0) {
+          rooms.delete(roomId);
+        }
+      }
+
+      // Broadcast user left
+      broadcast(roomId, {
+        type: 'USER_LEFT',
+        userId: user.id,
+      });
+    });
+
+    // Handle errors
+    ws.on('error', (error) => {
+      console.error('WebSocket error:', error);
+    });
+
+  } catch (error) {
+    console.error('WebSocket connection error:', error);
+    ws.close(1011, 'Internal server error');
+  }
+}
+
+/**
+ * Initialize WebSocket server (legacy function for backward compatibility)
  * @param {http.Server} server - HTTP server instance
  */
 function initWebSocketServer(server) {
@@ -41,138 +207,7 @@ function initWebSocketServer(server) {
     path: '/ws',
   });
 
-  wss.on('connection', async (ws, req) => {
-    try {
-      // Parse query parameters
-      const params = url.parse(req.url, true).query;
-      const token = params.token;
-      const roomId = params.roomId;
-
-      if (!token || !roomId) {
-        ws.close(1008, 'Token and roomId required');
-        return;
-      }
-
-      // Verify JWT token
-      let user;
-      try {
-        user = jwt.verify(token, process.env.JWT_SECRET);
-      } catch (error) {
-        ws.close(1008, 'Invalid token');
-        return;
-      }
-
-      // Attach user info to WebSocket
-      ws.userId = user.id;
-      ws.userRole = user.role;
-      ws.roomId = roomId;
-      ws.userName = user.name || user.email;
-      ws.userColor = assignUserColor(roomId);
-
-      // Add client to room
-      if (!rooms.has(roomId)) {
-        rooms.set(roomId, new Set());
-      }
-      rooms.get(roomId).add(ws);
-
-      console.log(`User ${user.id} (${user.role}) joined room ${roomId}`);
-
-      // Send missed events if client provides lastEventId
-      const lastEventId = parseInt(params.lastEventId) || 0;
-      if (lastEventId > 0) {
-        const missedEvents = await eventService.getEvents(roomId, lastEventId);
-        ws.send(JSON.stringify({
-          type: 'SYNC',
-          events: missedEvents,
-        }));
-      }
-
-      // Broadcast user joined
-      broadcast(roomId, {
-        type: 'USER_JOINED',
-        userId: user.id,
-        userName: user.name || user.email,
-        role: user.role,
-      }, ws);
-
-      // Send current cursor positions to new joiner
-      const cursorSnapshot = getCursorSnapshot(roomId);
-      if (cursorSnapshot.length > 0) {
-        ws.send(JSON.stringify({
-          type: 'CURSOR_SNAPSHOT',
-          cursors: cursorSnapshot,
-        }));
-      }
-
-      // Handle incoming messages
-      ws.on('message', async (data) => {
-        try {
-          const message = JSON.parse(data.toString());
-          
-          // Handle CURSOR_MOVE messages
-          if (message.type === 'CURSOR_MOVE') {
-            const { x, y } = message.payload;
-            
-            // Update cursor position in presence map
-            const cursorData = updateCursor(
-              roomId,
-              ws.userId,
-              { x, y },
-              ws.userName,
-              ws.userColor
-            );
-            
-            // Broadcast cursor update to all clients except sender
-            broadcastCursor(roomId, ws.userId, cursorData, (roomId, msg) => {
-              broadcast(roomId, msg, ws);
-            });
-          } else {
-            // Handle other message types via wsHandler
-            await handleMessage(ws, message, broadcast);
-          }
-        } catch (error) {
-          console.error('Message parse error:', error);
-          ws.send(JSON.stringify({
-            type: 'ERROR',
-            error: 'Invalid message format',
-          }));
-        }
-      });
-
-      // Handle disconnection
-      ws.on('close', () => {
-        console.log(`User ${user.id} left room ${roomId}`);
-        
-        // Remove cursor from presence map
-        removeCursor(roomId, ws.userId);
-        
-        // Remove from room
-        if (rooms.has(roomId)) {
-          rooms.get(roomId).delete(ws);
-          
-          // Clean up empty rooms
-          if (rooms.get(roomId).size === 0) {
-            rooms.delete(roomId);
-          }
-        }
-
-        // Broadcast user left
-        broadcast(roomId, {
-          type: 'USER_LEFT',
-          userId: user.id,
-        });
-      });
-
-      // Handle errors
-      ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
-      });
-
-    } catch (error) {
-      console.error('WebSocket connection error:', error);
-      ws.close(1011, 'Internal server error');
-    }
-  });
+  wss.on('connection', handleRawWSConnection);
 
   console.log('✅ WebSocket server initialized');
 }
@@ -199,5 +234,6 @@ function broadcast(roomId, message, excludeWs = null) {
 
 module.exports = {
   initWebSocketServer,
+  handleRawWSConnection,
   broadcast,
 };

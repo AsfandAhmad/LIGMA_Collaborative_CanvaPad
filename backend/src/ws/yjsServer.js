@@ -20,7 +20,7 @@ const ydocs = new Map();
 const roomConnections = new Map();
 
 /**
- * Initialize Yjs WebSocket server on /yjs path
+ * Initialize Yjs WebSocket server on /yjs path (legacy function for backward compatibility)
  * @param {http.Server} server - HTTP server instance
  * @returns {WebSocket.Server} Yjs WebSocket server instance
  */
@@ -38,9 +38,7 @@ function initYjsServer(server) {
     }
   });
 
-  wss.on('connection', (ws, req) => {
-    handleConnection(ws, req);
-  });
+  wss.on('connection', handleYjsConnection);
 
   return wss;
 }
@@ -157,79 +155,87 @@ function decodeYjsUpdate(update, prevStateUpdate) {
 }
 
 /**
- * Handle Y.Doc update event with RBAC integration, event logging, and intent classification.
- * The caller must pass prevStateUpdate (encoded state BEFORE the update was applied).
- *
- * Requirements: 1.6, 2.1-2.6, 13.1-13.6, 15.1-15.6
- * @param {Uint8Array} update - Binary CRDT update
- * @param {Uint8Array|null} prevStateUpdate - Encoded ydoc state before this update
- * @param {Y.Doc} ydoc - Yjs document (post-update state)
+ * Check RBAC permissions for all mutations in an update BEFORE applying.
+ * Returns true if all mutations are allowed, false otherwise.
+ * 
+ * Requirements: 1.6, 2.1-2.6
+ * @param {Array<Object>} mutations - Array of decoded mutations
+ * @param {string} userId - User identifier
+ * @param {string} roomId - Room identifier
+ * @returns {Promise<boolean>} True if all mutations allowed
+ */
+async function checkYjsMutations(mutations, userId, roomId) {
+  for (const mutation of mutations) {
+    if (!mutation.nodeId) continue;
+
+    const canMutate = await rbacService.canMutate(
+      userId,
+      mutation.nodeId,
+      mutation.operation
+    );
+
+    if (!canMutate) {
+      console.warn(
+        `RBAC violation: User ${userId} cannot ${mutation.operation} node ${mutation.nodeId}`
+      );
+      await eventService.insertEvent(
+        'RBAC_VIOLATION',
+        { userId, nodeId: mutation.nodeId, operation: mutation.operation, reason: 'Insufficient permissions' },
+        userId,
+        roomId
+      );
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Log events and classify intent for mutations (called AFTER update is applied and RBAC passed).
+ * 
+ * Requirements: 2.1-2.6, 13.1-13.6, 15.1-15.6
+ * @param {Array<Object>} mutations - Array of decoded mutations
  * @param {string} roomId - Room identifier
  * @param {string} userId - User identifier
  */
-async function handleYjsUpdate(update, prevStateUpdate, ydoc, roomId, userId) {
-  try {
-    const mutations = decodeYjsUpdate(update, prevStateUpdate);
+async function logYjsMutations(mutations, roomId, userId) {
+  for (const mutation of mutations) {
+    if (!mutation.nodeId) continue;
 
-    for (const mutation of mutations) {
-      if (!mutation.nodeId) continue;
+    // Build event payload
+    const eventType = getEventType(mutation);
+    const eventPayload = { nodeId: mutation.nodeId, ...mutation.payload };
 
-      const canMutate = await rbacService.canMutate(
-        userId,
-        mutation.nodeId,
-        mutation.operation
-      );
+    if (mutation.operation === 'update' && mutation.previousValues) {
+      eventPayload.previousValues = mutation.previousValues;
+    }
+    if (mutation.operation === 'delete' && mutation.previousValues) {
+      eventPayload.deletedNode = mutation.previousValues;
+    }
 
-      if (!canMutate) {
-        console.warn(
-          `RBAC violation: User ${userId} cannot ${mutation.operation} node ${mutation.nodeId}`
-        );
-        await eventService.insertEvent(
-          'RBAC_VIOLATION',
-          { userId, nodeId: mutation.nodeId, operation: mutation.operation, reason: 'Insufficient permissions' },
+    // Non-blocking event log insertion
+    eventService.insertEvent(eventType, eventPayload, userId, roomId)
+      .catch((error) => {
+        console.error('Event log insertion failed:', {
           userId,
-          roomId
-        );
-        return;
-      }
+          nodeId: mutation.nodeId,
+          operation: mutation.operation,
+          reason: error.message,
+        });
+      });
 
-      // Build event payload
-      const eventType = getEventType(mutation);
-      const eventPayload = { nodeId: mutation.nodeId, ...mutation.payload };
-
-      if (mutation.operation === 'update' && mutation.previousValues) {
-        eventPayload.previousValues = mutation.previousValues;
-      }
-      if (mutation.operation === 'delete' && mutation.previousValues) {
-        eventPayload.deletedNode = mutation.previousValues;
-      }
-
-      // Non-blocking event log insertion
-      eventService.insertEvent(eventType, eventPayload, userId, roomId)
+    // Non-blocking intent classification for text changes
+    if (mutation.payload && mutation.payload.text) {
+      intentService
+        .classifyNodeIntent(mutation.payload.text, mutation.nodeId, roomId, userId)
         .catch((error) => {
-          console.error('Event log insertion failed:', {
+          console.error('Intent classification failed:', {
             userId,
             nodeId: mutation.nodeId,
-            operation: mutation.operation,
             reason: error.message,
           });
         });
-
-      // Non-blocking intent classification for text changes
-      if (mutation.payload && mutation.payload.text) {
-        intentService
-          .classifyNodeIntent(mutation.payload.text, mutation.nodeId, roomId, userId)
-          .catch((error) => {
-            console.error('Intent classification failed:', {
-              userId,
-              nodeId: mutation.nodeId,
-              reason: error.message,
-            });
-          });
-      }
     }
-  } catch (error) {
-    console.error('Yjs update handler error:', error);
   }
 }
 
@@ -269,10 +275,12 @@ function authenticateYjsConnection(ws, req) {
 }
 
 /**
- * Handle WebSocket connection lifecycle
+ * Handle WebSocket connection lifecycle (exported for use in index.js)
  * Requirements: 1.2, 1.3, 1.6, 13.1-13.6
+ * @param {WebSocket} ws - WebSocket connection
+ * @param {http.IncomingMessage} req - HTTP request
  */
-function handleConnection(ws, req) {
+function handleYjsConnection(ws, req) {
   const authenticated = authenticateYjsConnection(ws, req);
   if (!authenticated) return;
 
@@ -291,7 +299,7 @@ function handleConnection(ws, req) {
       // Broadcast update to all other clients in the room
       const connections = roomConnections.get(roomId);
       if (connections) {
-        connections.forEach((clientInfo, clientWs) => {
+        connections.forEach((_, clientWs) => {
           // Don't send to the client that originated the update
           const isOriginator = origin && origin.ws && origin.ws === clientWs;
           
@@ -321,7 +329,7 @@ function handleConnection(ws, req) {
   ws.send(syncStep1Message);
 
   // Handle incoming Yjs binary messages
-  ws.on('message', (data) => {
+  ws.on('message', async (data) => {
     try {
       const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
       
@@ -334,7 +342,7 @@ function handleConnection(ws, req) {
         if (buffer.length < 2) return;
         
         const syncMessageType = buffer[1];
-        const payload = buffer.slice(2);
+        const payload = buffer.subarray(2);
 
         if (syncMessageType === 0) {
           // SyncStep1: Client sends state vector, we respond with missing updates
@@ -354,11 +362,23 @@ function handleConnection(ws, req) {
           // Capture state BEFORE applying update
           const prevStateUpdate = Y.encodeStateAsUpdate(ydoc);
           
+          // CRITICAL FIX: Decode and check RBAC BEFORE applying update
+          const mutations = decodeYjsUpdate(update, prevStateUpdate);
+          const allowed = await checkYjsMutations(mutations, userId, roomId);
+          
+          if (!allowed) {
+            // RBAC violation - do NOT apply update, do NOT broadcast
+            console.warn(`Rejected SyncStep2 update from user ${userId} due to RBAC violation`);
+            return;
+          }
+          
           // Apply update with origin to track who made the change
           Y.applyUpdate(ydoc, update, { userId, ws });
           
-          // Handle RBAC and event logging with prevStateUpdate
-          handleYjsUpdate(update, prevStateUpdate, ydoc, roomId, userId);
+          // Log events and classify intent (mutations already decoded)
+          logYjsMutations(mutations, roomId, userId).catch(err => 
+            console.error('Error logging mutations:', err)
+          );
 
         } else if (syncMessageType === 2) {
           // Update: Client sends incremental update
@@ -367,11 +387,23 @@ function handleConnection(ws, req) {
           // Capture state BEFORE applying update
           const prevStateUpdate = Y.encodeStateAsUpdate(ydoc);
           
+          // CRITICAL FIX: Decode and check RBAC BEFORE applying update
+          const mutations = decodeYjsUpdate(update, prevStateUpdate);
+          const allowed = await checkYjsMutations(mutations, userId, roomId);
+          
+          if (!allowed) {
+            // RBAC violation - do NOT apply update, do NOT broadcast
+            console.warn(`Rejected incremental update from user ${userId} due to RBAC violation`);
+            return;
+          }
+          
           // Apply update with origin
           Y.applyUpdate(ydoc, update, { userId, ws });
           
-          // Handle RBAC and event logging with prevStateUpdate
-          handleYjsUpdate(update, prevStateUpdate, ydoc, roomId, userId);
+          // Log events and classify intent (mutations already decoded)
+          logYjsMutations(mutations, roomId, userId).catch(err => 
+            console.error('Error logging mutations:', err)
+          );
         }
       }
       // messageType 1 = awareness protocol (not implemented yet)
@@ -390,9 +422,9 @@ function handleConnection(ws, req) {
       if (connections.size === 0) {
         roomConnections.delete(roomId);
         
-        const ydoc = ydocs.get(roomId);
-        if (ydoc) {
-          ydoc.destroy();
+        const docToDestroy = ydocs.get(roomId);
+        if (docToDestroy) {
+          docToDestroy.destroy();
           ydocs.delete(roomId);
           console.log(`Cleaned up Y.Doc for empty room: ${roomId}`);
         }
@@ -409,11 +441,21 @@ function handleConnection(ws, req) {
   console.log(`Yjs connection established for room: ${roomId}`);
 }
 
+/**
+ * Handle WebSocket connection lifecycle (legacy function name for backward compatibility)
+ * Requirements: 1.2, 1.3, 1.6, 13.1-13.6
+ */
+function handleConnection(ws, req) {
+  return handleYjsConnection(ws, req);
+}
+
 module.exports = {
   initYjsServer,
+  handleYjsConnection,
   getYDoc,
   authenticateYjsConnection,
-  handleYjsUpdate,
+  checkYjsMutations,
+  logYjsMutations,
   decodeYjsUpdate,
   getEventType,
   ydocs, // Export for testing
