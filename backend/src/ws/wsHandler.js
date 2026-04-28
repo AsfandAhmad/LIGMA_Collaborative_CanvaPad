@@ -1,5 +1,5 @@
 // Handle incoming WebSocket messages
-// Message format: { type, payload, nodeId, roomId, token }
+// Message format: { type, payload, nodeId }
 //
 // switch(message.type):
 //   case "NODE_UPDATE":
@@ -14,7 +14,6 @@
 //
 // CRITICAL: RBAC check happens HERE before every mutation
 
-const jwt = require('jsonwebtoken');
 const eventService = require('../services/eventService');
 const rbacService = require('../services/rbacService');
 const intentService = require('../services/intentService');
@@ -27,15 +26,15 @@ const intentService = require('../services/intentService');
  */
 async function handleMessage(ws, message, broadcast) {
   try {
-    const { type, payload, nodeId, roomId, token } = message;
+    const { type, payload, nodeId } = message;
 
-    // Verify JWT token
-    let user;
-    try {
-      user = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (error) {
-      return sendError(ws, 'Invalid token');
-    }
+    // Use authenticated user info and roomId from WebSocket (prevents room ID spoofing)
+    const user = {
+      id: ws.userId,
+      role: ws.userRole,
+      name: ws.userName
+    };
+    const roomId = ws.roomId; // Use validated roomId from connection, not from message
 
     // Handle different message types
     switch (type) {
@@ -53,15 +52,6 @@ async function handleMessage(ws, message, broadcast) {
 
       case 'NODE_MOVE':
         await handleNodeMove(ws, user, nodeId, payload, roomId, broadcast);
-        break;
-
-      case 'CURSOR_MOVE':
-        // Broadcast cursor position without persisting
-        broadcast(roomId, {
-          type: 'CURSOR_MOVE',
-          userId: user.id,
-          payload,
-        }, ws);
         break;
 
       default:
@@ -91,7 +81,7 @@ async function handleNodeCreate(ws, user, payload, roomId, broadcast) {
       roomId
     );
 
-    // Broadcast to all clients in room
+    // Broadcast to all clients in room (including sender for operation confirmation)
     broadcast(roomId, {
       type: 'NODE_CREATED',
       event,

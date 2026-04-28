@@ -54,7 +54,7 @@ model Room {
 
 model Event {
   id        Int      @id @default(autoincrement())
-  type      String   // NODE_CREATED, NODE_UPDATED, NODE_DELETED, LOCK_NODE, RESET, TASK_CREATED
+  type      String   // NODE_CREATED, NODE_UPDATED, NODE_DELETED, LOCK_NODE, RESET, TASK_CREATED, CRDT_NODE_CREATED, CRDT_NODE_UPDATED, CRDT_NODE_DELETED, CRDT_NODE_MOVED, RBAC_VIOLATION
   payload   Json     // The actual delta data
   userId    String
   roomId    String

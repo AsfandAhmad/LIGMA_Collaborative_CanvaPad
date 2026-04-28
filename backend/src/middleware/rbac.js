@@ -32,7 +32,7 @@ function requireRole(...allowedRoles) {
  * Checks if user can mutate a specific node based on node ACL
  * Requires nodeId in req.params
  */
-async function checkNodePermission(action = 'update') {
+function checkNodePermission(action = 'update') {
   return async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });

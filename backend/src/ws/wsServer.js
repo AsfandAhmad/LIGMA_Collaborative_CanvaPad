@@ -12,9 +12,24 @@ const url = require('url');
 const jwt = require('jsonwebtoken');
 const { handleMessage } = require('./wsHandler');
 const eventService = require('../services/eventService');
+const { updateCursor, broadcastCursor, getCursorSnapshot, removeCursor } = require('./presence');
 
 // Room management: roomId -> Set of WebSocket clients
 const rooms = new Map();
+
+// Color palette for user cursors
+const COLOR_PALETTE = ['#FF5722', '#2196F3', '#4CAF50', '#FFC107', '#9C27B0', '#00BCD4', '#E91E63', '#673AB7'];
+
+/**
+ * Assign a unique color to a user based on room size
+ * @param {string} roomId - Room identifier
+ * @returns {string} Hex color code
+ */
+function assignUserColor(roomId) {
+  const roomClients = rooms.get(roomId);
+  const userCount = roomClients ? roomClients.size : 0;
+  return COLOR_PALETTE[userCount % COLOR_PALETTE.length];
+}
 
 /**
  * Initialize WebSocket server
@@ -51,6 +66,8 @@ function initWebSocketServer(server) {
       ws.userId = user.id;
       ws.userRole = user.role;
       ws.roomId = roomId;
+      ws.userName = user.name || user.email;
+      ws.userColor = assignUserColor(roomId);
 
       // Add client to room
       if (!rooms.has(roomId)) {
@@ -78,11 +95,41 @@ function initWebSocketServer(server) {
         role: user.role,
       }, ws);
 
+      // Send current cursor positions to new joiner
+      const cursorSnapshot = getCursorSnapshot(roomId);
+      if (cursorSnapshot.length > 0) {
+        ws.send(JSON.stringify({
+          type: 'CURSOR_SNAPSHOT',
+          cursors: cursorSnapshot,
+        }));
+      }
+
       // Handle incoming messages
       ws.on('message', async (data) => {
         try {
           const message = JSON.parse(data.toString());
-          await handleMessage(ws, message, broadcast);
+          
+          // Handle CURSOR_MOVE messages
+          if (message.type === 'CURSOR_MOVE') {
+            const { x, y } = message.payload;
+            
+            // Update cursor position in presence map
+            const cursorData = updateCursor(
+              roomId,
+              ws.userId,
+              { x, y },
+              ws.userName,
+              ws.userColor
+            );
+            
+            // Broadcast cursor update to all clients except sender
+            broadcastCursor(roomId, ws.userId, cursorData, (roomId, msg) => {
+              broadcast(roomId, msg, ws);
+            });
+          } else {
+            // Handle other message types via wsHandler
+            await handleMessage(ws, message, broadcast);
+          }
         } catch (error) {
           console.error('Message parse error:', error);
           ws.send(JSON.stringify({
@@ -95,6 +142,9 @@ function initWebSocketServer(server) {
       // Handle disconnection
       ws.on('close', () => {
         console.log(`User ${user.id} left room ${roomId}`);
+        
+        // Remove cursor from presence map
+        removeCursor(roomId, ws.userId);
         
         // Remove from room
         if (rooms.has(roomId)) {
