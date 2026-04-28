@@ -1,25 +1,105 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Grid3x3, List, Filter, ArrowRight, CheckCircle2, Circle, AlertCircle, MoreHorizontal } from "lucide-react";
 import { AppSidebar } from "@/components/ligma/AppSidebar";
 import { WorkspaceTopbar } from "@/components/ligma/WorkspaceTopbar";
-import { SessionGrid } from "@/components/ligma/SessionGrid";
+import { SessionGrid, type SessionItem } from "@/components/ligma/SessionGrid";
 import { Button } from "@/components/ui/button";
-import { useDemo, demoActions } from "@/lib/demoStore";
 import { toast } from "@/hooks/use-toast";
+import { roomsApi, tasksApi, workspacesApi, type Room, type Task } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
-const tasks = [
-  { t: "Wire LISTEN/NOTIFY in canvas client", status: "in_progress", session: "Architecture review v3", due: "Tomorrow" },
-  { t: "Draft pricing copy v2", status: "todo", session: "Pricing page brainstorm", due: "Fri" },
-  { t: "Lock decision nodes for review", status: "done", session: "Sprint 44 — kickoff", due: "Today" },
-  { t: "Schedule design crit", status: "todo", session: "Onboarding revamp", due: "Mon" },
-];
+const thumbs = ["bg-sticky-yellow", "bg-sticky-pink", "bg-sticky-mint", "bg-sticky-sky"];
+const folderColors = ["bg-coral", "bg-warning", "bg-success", "bg-indigo"];
 
 const Dashboard = () => {
-  const sessions = useDemo(s => s.sessions.filter(s => !s.trashed));
-  useEffect(() => { demoActions.ensureGuest(); }, []);
+  const { user } = useAuth();
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [workspaceName, setWorkspaceName] = useState("Workspace");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadDashboard = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const [roomData, primaryWorkspace] = await Promise.all([
+          roomsApi.getRooms(),
+          workspacesApi.getPrimary(),
+        ]);
+
+        if (!isMounted) return;
+
+        setRooms(roomData || []);
+        setWorkspaceName(primaryWorkspace?.name || "Workspace");
+
+        const limitedRooms = (roomData || []).slice(0, 3);
+        const tasksByRoom = await Promise.all(
+          limitedRooms.map(async (room) => {
+            try {
+              return await tasksApi.getTasks(room.id);
+            } catch {
+              return [] as Task[];
+            }
+          })
+        );
+
+        if (!isMounted) return;
+
+        setTasks(tasksByRoom.flat());
+      } catch (err: any) {
+        if (!isMounted) return;
+        setError(err.message || "Failed to load dashboard");
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    loadDashboard();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
+
+  const sessionItems = useMemo<SessionItem[]>(() =>
+    rooms.map((room, index) => ({
+      id: room.id,
+      name: room.name,
+      folder: workspaceName,
+      folderColor: folderColors[index % folderColors.length],
+      thumb: thumbs[index % thumbs.length],
+      live: 0,
+      time: room.createdAt ? formatTime(room.createdAt) : "recently",
+      tasks: tasks.filter((t) => t.roomId === room.id).length,
+    })),
+  [rooms, tasks, workspaceName]);
+
+  const taskItems = useMemo(() =>
+    tasks.slice(0, 6).map((task) => ({
+      t: task.text,
+      status: task.status,
+      session: rooms.find((room) => room.id === task.roomId)?.name || "Session",
+      due: task.createdAt ? formatTime(task.createdAt) : "soon",
+    })),
+  [rooms, tasks]);
+
+  const metrics = useMemo(() => ({
+    activeSessions: rooms.length,
+    tasksExtracted: tasks.length,
+  }), [rooms.length, tasks.length]);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -29,7 +109,6 @@ const Dashboard = () => {
         <WorkspaceTopbar label="/home" title="Welcome back" />
 
         <div className="px-8 py-8 space-y-12">
-          {/* Continue working */}
           <section>
             <div className="flex items-end justify-between mb-5">
               <div>
@@ -42,10 +121,33 @@ const Dashboard = () => {
                 <Button variant="ghost" size="icon-sm" onClick={() => toast({ title: "List view", description: "Switch to grid for now." })}><List className="h-3.5 w-3.5"/></Button>
               </div>
             </div>
-            <SessionGrid sessions={sessions} />
+
+            {loading && (
+              <div className="rounded-2xl border-2 border-foreground/15 bg-card p-6 text-sm text-muted-foreground">
+                Loading sessions…
+              </div>
+            )}
+
+            {!loading && error && (
+              <div className="rounded-2xl border-2 border-coral/40 bg-coral/5 p-6 text-sm text-coral">
+                {error}
+              </div>
+            )}
+
+            {!loading && !error && (
+              <SessionGrid
+                sessions={sessionItems}
+                interactive={false}
+                empty={
+                  <div className="space-y-2">
+                    <p className="text-muted-foreground">No sessions yet.</p>
+                    <p className="text-xs text-muted-foreground">Create a workspace in Settings to get started.</p>
+                  </div>
+                }
+              />
+            )}
           </section>
 
-          {/* Tasks snapshot */}
           <section className="grid lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 rounded-2xl border-2 border-foreground/15 bg-card p-6">
               <div className="flex items-center justify-between mb-4">
@@ -56,7 +158,10 @@ const Dashboard = () => {
                 <Button asChild variant="ghost" size="sm"><Link href="/projects">View all <ArrowRight className="h-3.5 w-3.5"/></Link></Button>
               </div>
               <div className="divide-y divide-foreground/10">
-                {tasks.map((t, i) => {
+                {taskItems.length === 0 && (
+                  <div className="py-6 text-sm text-muted-foreground">No tasks yet — capture action items on the canvas.</div>
+                )}
+                {taskItems.map((t, i) => {
                   const Icon = t.status === "done" ? CheckCircle2 : t.status === "in_progress" ? AlertCircle : Circle;
                   const color = t.status === "done" ? "text-success" : t.status === "in_progress" ? "text-warning" : "text-muted-foreground";
                   return (
@@ -81,10 +186,8 @@ const Dashboard = () => {
                 <h2 className="text-xl font-bold mb-4">Workspace pulse</h2>
                 <div className="space-y-4">
                   {[
-                    { l: "Active sessions", v: "12", c: "text-warning" },
-                    { l: "Notes captured", v: "284", c: "text-accent" },
-                    { l: "Tasks extracted", v: "67", c: "text-success" },
-                    { l: "Decisions locked", v: "9", c: "text-coral" },
+                    { l: "Active sessions", v: String(metrics.activeSessions), c: "text-warning" },
+                    { l: "Tasks extracted", v: String(metrics.tasksExtracted), c: "text-success" },
                   ].map(s => (
                     <div key={s.l} className="flex items-baseline justify-between border-b border-background/10 pb-3">
                       <span className="text-sm text-background/70">{s.l}</span>
@@ -92,7 +195,7 @@ const Dashboard = () => {
                     </div>
                   ))}
                 </div>
-                <p className="font-hand text-xl text-warning mt-5">↑ best week so far</p>
+                <p className="font-hand text-xl text-warning mt-5">↑ keep the momentum</p>
               </div>
             </div>
           </section>
@@ -101,5 +204,18 @@ const Dashboard = () => {
     </div>
   );
 };
+
+function formatTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
 export default Dashboard;

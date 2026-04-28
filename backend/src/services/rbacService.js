@@ -1,13 +1,120 @@
-// canMutate(userId, nodeId, action)
-//   → fetch node ACL from DB
-//   → check user role against node's allowed roles
+// canMutate(userId, nodeId, action, accessToken)
+//   → fetch workspace role via RLS
+//   → check node permissions with role_required + permission
 //   → return true/false
 //
-// Node ACL schema: { nodeId, allowedRoles: ["Lead", "Contributor"] }
+// Node permissions schema: role_required + permission
 // Viewers can NEVER mutate — enforced HERE on server
 // This is called in wsHandler BEFORE applying any mutation
 
-const prisma = require('../db/prisma');
+const { getSupabaseClientForToken } = require('../utils/supabase');
+
+const ROLE_RANK = {
+  viewer: 1,
+  contributor: 2,
+  lead: 3,
+  owner: 4,
+};
+
+const PERMISSION_RANK = {
+  none: 0,
+  view: 1,
+  comment: 2,
+  edit: 3,
+};
+
+function normalizeRole(role) {
+  if (!role) return null;
+  const normalized = String(role).toLowerCase();
+
+  if (normalized === 'owner') return 'owner';
+  if (normalized === 'lead') return 'lead';
+  if (normalized === 'contributor') return 'contributor';
+  if (normalized === 'viewer') return 'viewer';
+
+  return null;
+}
+
+function toAllowedRoles(roleRequired) {
+  const role = normalizeRole(roleRequired);
+  if (!role) return ['Lead', 'Contributor'];
+
+  if (role === 'owner') return ['Owner'];
+  if (role === 'lead') return ['Lead'];
+  if (role === 'contributor') return ['Lead', 'Contributor'];
+  if (role === 'viewer') return ['Lead', 'Contributor', 'Viewer'];
+
+  return ['Lead', 'Contributor'];
+}
+
+function requiredPermissionForAction(action) {
+  if (action === 'view') return 'view';
+  if (action === 'comment') return 'comment';
+  return 'edit';
+}
+
+async function getWorkspaceRoleForRoom(userId, roomId, accessToken) {
+  const client = getSupabaseClientForToken(accessToken);
+  if (!client) return null;
+
+  const { data: room, error: roomError } = await client
+    .from('rooms')
+    .select('workspace_id')
+    .eq('id', roomId)
+    .maybeSingle();
+
+  if (roomError || !room?.workspace_id) {
+    return null;
+  }
+
+  const { data: membership, error: membershipError } = await client
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', room.workspace_id)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (membershipError || !membership?.role) {
+    return null;
+  }
+
+  return normalizeRole(membership.role);
+}
+
+async function getWorkspaceRoleForWorkspace(userId, workspaceId, accessToken) {
+  const client = getSupabaseClientForToken(accessToken);
+  if (!client) return null;
+
+  const { data: membership, error } = await client
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error || !membership?.role) {
+    return null;
+  }
+
+  return normalizeRole(membership.role);
+}
+
+async function getWorkspaceRoleForNode(userId, nodeId, accessToken) {
+  const client = getSupabaseClientForToken(accessToken);
+  if (!client) return null;
+
+  const { data: node, error: nodeError } = await client
+    .from('canvas_nodes')
+    .select('room_id')
+    .eq('id', nodeId)
+    .maybeSingle();
+
+  if (nodeError || !node?.room_id) {
+    return null;
+  }
+
+  return getWorkspaceRoleForRoom(userId, node.room_id, accessToken);
+}
 
 /**
  * Check if user can mutate a node based on ACL
@@ -16,41 +123,59 @@ const prisma = require('../db/prisma');
  * @param {string} action - Action type (update, delete, lock, etc.)
  * @returns {Promise<boolean>}
  */
-async function canMutate(userId, nodeId, action) {
+async function canMutate(userId, nodeId, action, accessToken) {
   try {
-    // Fetch user to get their role
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { role: true },
-    });
+    const client = getSupabaseClientForToken(accessToken);
+    if (!client) return false;
 
-    if (!user) {
+    const workspaceRole = await getWorkspaceRoleForNode(userId, nodeId, accessToken);
+    const normalizedRole = normalizeRole(workspaceRole);
+
+    if (!normalizedRole) {
       return false;
     }
+
+    const roleRank = ROLE_RANK[normalizedRole] || 0;
 
     // Viewers can NEVER mutate anything
-    if (user.role === 'Viewer') {
+    if (normalizedRole === 'viewer') {
       return false;
     }
 
-    // Leads can do everything
-    if (user.role === 'Lead') {
+    // Leads/owners can do everything
+    if (normalizedRole === 'lead' || normalizedRole === 'owner') {
       return true;
     }
 
-    // For Contributors, check node-specific ACL
-    const nodeAcl = await prisma.nodeAcl.findUnique({
-      where: { nodeId },
-      select: { allowedRoles: true },
-    });
+    const { data: nodePermission, error: permissionError } = await client
+      .from('node_permissions')
+      .select('permission, role_required')
+      .eq('node_id', nodeId)
+      .or(`user_id.eq.${userId},user_id.is.null`)
+      .order('user_id', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    // If no ACL exists, default to allowing Contributors
-    if (!nodeAcl) {
-      return user.role === 'Contributor';
+    if (permissionError) {
+      return false;
     }
 
-    // Check if user's role is in the allowed roles
-    return nodeAcl.allowedRoles.includes(user.role);
+    if (!nodePermission) {
+      return roleRank >= ROLE_RANK.contributor;
+    }
+
+    const requiredRole = normalizeRole(nodePermission.role_required) || 'contributor';
+    const requiredRoleRank = ROLE_RANK[requiredRole] || 0;
+
+    if (roleRank < requiredRoleRank) {
+      return false;
+    }
+
+    const requiredPermission = requiredPermissionForAction(action);
+    const permissionRank = PERMISSION_RANK[nodePermission.permission] || 0;
+    const requiredRank = PERMISSION_RANK[requiredPermission] || 0;
+
+    return permissionRank >= requiredRank;
   } catch (error) {
     console.error('RBAC check error:', error);
     return false;
@@ -64,16 +189,59 @@ async function canMutate(userId, nodeId, action) {
  * @param {string[]} allowedRoles - Array of allowed roles
  * @returns {Promise<Object>}
  */
-async function setNodeAcl(nodeId, roomId, allowedRoles) {
-  return await prisma.nodeAcl.upsert({
-    where: { nodeId },
-    update: { allowedRoles },
-    create: {
-      nodeId,
-      roomId,
-      allowedRoles,
-    },
-  });
+async function setNodeAcl(nodeId, roomId, allowedRoles, accessToken) {
+  const client = getSupabaseClientForToken(accessToken);
+  if (!client) return null;
+
+  const normalizedRoles = Array.isArray(allowedRoles)
+    ? allowedRoles.map(normalizeRole).filter(Boolean)
+    : [];
+
+  const minRoleRank = normalizedRoles.reduce((minRank, role) => {
+    const rank = ROLE_RANK[role] || 0;
+    return Math.min(minRank, rank || minRank);
+  }, ROLE_RANK.lead);
+
+  const roleRequired = Object.keys(ROLE_RANK).find(
+    (role) => ROLE_RANK[role] === minRoleRank
+  ) || 'contributor';
+
+  const { data: existing, error: existingError } = await client
+    .from('node_permissions')
+    .select('id')
+    .eq('node_id', nodeId)
+    .is('user_id', null)
+    .maybeSingle();
+
+  if (existingError) {
+    return null;
+  }
+
+  if (existing?.id) {
+    const { data, error } = await client
+      .from('node_permissions')
+      .update({ role_required: roleRequired, permission: 'edit' })
+      .eq('id', existing.id)
+      .select('*')
+      .maybeSingle();
+
+    if (error) return null;
+    return { ...data, allowedRoles: toAllowedRoles(roleRequired) };
+  }
+
+  const { data, error } = await client
+    .from('node_permissions')
+    .insert({
+      node_id: nodeId,
+      user_id: null,
+      role_required: roleRequired,
+      permission: 'edit',
+    })
+    .select('*')
+    .maybeSingle();
+
+  if (error) return null;
+  return { ...data, allowedRoles: toAllowedRoles(roleRequired) };
 }
 
 /**
@@ -81,10 +249,26 @@ async function setNodeAcl(nodeId, roomId, allowedRoles) {
  * @param {string} nodeId - Node ID
  * @returns {Promise<Object|null>}
  */
-async function getNodeAcl(nodeId) {
-  return await prisma.nodeAcl.findUnique({
-    where: { nodeId },
-  });
+async function getNodeAcl(nodeId, accessToken) {
+  const client = getSupabaseClientForToken(accessToken);
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from('node_permissions')
+    .select('permission, role_required')
+    .eq('node_id', nodeId)
+    .is('user_id', null)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return {
+    permission: data.permission,
+    roleRequired: data.role_required,
+    allowedRoles: toAllowedRoles(data.role_required),
+  };
 }
 
 /**
@@ -93,13 +277,16 @@ async function getNodeAcl(nodeId) {
  * @param {string} requiredRole - Required role (Lead, Contributor, Viewer)
  * @returns {Promise<boolean>}
  */
-async function hasRole(userId, requiredRole) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { role: true },
-  });
+async function hasRole(userId, requiredRole, roomId, accessToken) {
+  if (!roomId) return false;
 
-  return user && user.role === requiredRole;
+  const workspaceRole = await getWorkspaceRoleForRoom(userId, roomId, accessToken);
+  const normalizedRole = normalizeRole(workspaceRole);
+  const normalizedRequired = normalizeRole(requiredRole);
+
+  if (!normalizedRole || !normalizedRequired) return false;
+
+  return ROLE_RANK[normalizedRole] >= ROLE_RANK[normalizedRequired];
 }
 
 module.exports = {
@@ -107,4 +294,7 @@ module.exports = {
   setNodeAcl,
   getNodeAcl,
   hasRole,
+  getWorkspaceRoleForRoom,
+  getWorkspaceRoleForNode,
+  getWorkspaceRoleForWorkspace,
 };

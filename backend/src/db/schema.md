@@ -1,5 +1,5 @@
 -- ============================================================
--- LIGMA — Let's Integrate Groups, Manage Anything
+-- c — Let's Integrate Groups, Manage Anything
 -- Supabase SQL Schema (copy-paste into Supabase SQL Editor)
 -- ============================================================
 -- Run this entire file in Supabase > SQL Editor > New Query
@@ -19,9 +19,6 @@ create table public.users (
   email       text not null unique,
   display_name text not null default '',
   avatar_url  text,
-  provider    text,
-  provider_user_id text,
-  last_login_at timestamptz,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -30,41 +27,8 @@ create table public.users (
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer as $$
 begin
-  insert into public.users (
-    id,
-    email,
-    display_name,
-    avatar_url,
-    provider,
-    provider_user_id,
-    last_login_at
-  )
-  values (
-    new.id,
-    new.email,
-    coalesce(
-      new.raw_user_meta_data->>'display_name',
-      new.raw_user_meta_data->>'full_name',
-      split_part(new.email, '@', 1)
-    ),
-    new.raw_user_meta_data->>'avatar_url',
-    coalesce(
-      new.raw_app_meta_data->>'provider',
-      new.raw_user_meta_data->>'provider'
-    ),
-    coalesce(
-      new.raw_user_meta_data->>'sub',
-      new.raw_user_meta_data->>'provider_id'
-    ),
-    now()
-  )
-  on conflict (id) do update set
-    email = excluded.email,
-    display_name = excluded.display_name,
-    avatar_url = excluded.avatar_url,
-    provider = excluded.provider,
-    provider_user_id = excluded.provider_user_id,
-    last_login_at = now();
+  insert into public.users (id, email, display_name)
+  values (new.id, new.email, coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)));
   return new;
 end;
 $$;
@@ -85,24 +49,6 @@ create table public.workspaces (
   settings    jsonb not null default '{}',
   created_at  timestamptz not null default now()
 );
-
--- ============================================================
--- 2.1 AUTH EVENTS (audit log)
--- Tracks login/logout/signup activity per user
--- ============================================================
-create table public.auth_events (
-  id         uuid primary key default uuid_generate_v4(),
-  user_id    uuid not null references public.users(id) on delete cascade,
-  event_type text not null check (event_type in ('signup', 'login', 'logout')),
-  ip_address text,
-  user_agent text,
-  success    boolean not null default true,
-  metadata   jsonb not null default '{}',
-  created_at timestamptz not null default now()
-);
-
-create index idx_auth_events_user on public.auth_events(user_id);
-create index idx_auth_events_type on public.auth_events(event_type);
 
 -- ============================================================
 -- 3. WORKSPACE MEMBERS
@@ -417,7 +363,6 @@ alter table public.node_permissions   enable row level security;
 alter table public.tasks              enable row level security;
 alter table public.events             enable row level security;
 alter table public.presence           enable row level security;
-alter table public.auth_events         enable row level security;
 
 -- USERS: users can read all profiles, edit only their own
 create policy "users_select_all"  on public.users for select using (true);
@@ -595,12 +540,6 @@ create policy "presence_update" on public.presence for update
   using (user_id = auth.uid());
 create policy "presence_delete" on public.presence for delete
   using (user_id = auth.uid());
-
--- AUTH EVENTS: users can insert and read their own audit logs
-create policy "auth_events_select" on public.auth_events for select
-  using (user_id = auth.uid());
-create policy "auth_events_insert" on public.auth_events for insert
-  with check (user_id = auth.uid());
 
 -- ============================================================
 -- 13. REALTIME — enable for live canvas sync

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Clock, Users, Star, MoreHorizontal, Trash2, RotateCcw, Share2 } from "lucide-react";
-import { type DemoSession, demoActions } from "@/lib/demoStore";
+import { demoActions } from "@/lib/demoStore";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -12,7 +12,32 @@ import { toast } from "@/hooks/use-toast";
 
 type Variant = "default" | "trash";
 
-export function SessionGrid({ sessions, empty, variant = "default" }: { sessions: DemoSession[]; empty?: React.ReactNode; variant?: Variant }) {
+export type SessionItem = {
+  id: string;
+  name: string;
+  folder: string;
+  folderColor: string;
+  thumb: string;
+  live: number;
+  time: string;
+  tasks: number;
+  pulse?: boolean;
+  starred?: boolean;
+  shared?: boolean;
+  trashed?: boolean;
+};
+
+export function SessionGrid({
+  sessions,
+  empty,
+  variant = "default",
+  interactive = true,
+}: {
+  sessions: SessionItem[];
+  empty?: React.ReactNode;
+  variant?: Variant;
+  interactive?: boolean;
+}) {
   const router = useRouter();
 
   if (sessions.length === 0) {
@@ -62,37 +87,39 @@ export function SessionGrid({ sessions, empty, variant = "default" }: { sessions
             </div>
           </button>
 
-          <div className="absolute top-5 right-5 opacity-0 group-hover:opacity-100 transition-opacity">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" className="h-7 w-7 bg-background/80 backdrop-blur"><MoreHorizontal className="h-3.5 w-3.5"/></Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {variant === "default" ? (
-                  <>
-                    <DropdownMenuItem onClick={() => { demoActions.toggleStar(s.id); toast({ title: s.starred ? "Removed from favorites" : "Starred" }); }}>
-                      <Star className="h-3.5 w-3.5"/> {s.starred ? "Unstar" : "Star"}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => { navigator.clipboard?.writeText(`https://ligma.app/s/${s.id}`).catch(()=>{}); toast({ title: "Link copied", description: s.name }); }}>
-                      <Share2 className="h-3.5 w-3.5"/> Copy share link
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => { demoActions.trashSession(s.id); toast({ title: "Moved to trash", description: s.name }); }}>
-                      <Trash2 className="h-3.5 w-3.5"/> Move to trash
-                    </DropdownMenuItem>
-                  </>
-                ) : (
-                  <>
-                    <DropdownMenuItem onClick={() => { demoActions.restoreSession(s.id); toast({ title: "Restored", description: s.name }); }}>
-                      <RotateCcw className="h-3.5 w-3.5"/> Restore
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => { demoActions.deleteSessionForever(s.id); toast({ title: "Deleted forever" }); }}>
-                      <Trash2 className="h-3.5 w-3.5"/> Delete forever
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          {interactive && (
+            <div className="absolute top-5 right-5 opacity-0 group-hover:opacity-100 transition-opacity">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" className="h-7 w-7 bg-background/80 backdrop-blur"><MoreHorizontal className="h-3.5 w-3.5"/></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {variant === "default" ? (
+                    <>
+                      <DropdownMenuItem onClick={() => { demoActions.toggleStar(s.id); toast({ title: s.starred ? "Removed from favorites" : "Starred" }); }}>
+                        <Star className="h-3.5 w-3.5"/> {s.starred ? "Unstar" : "Star"}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { navigator.clipboard?.writeText(`https://ligma.app/s/${s.id}`).catch(()=>{}); toast({ title: "Link copied", description: s.name }); }}>
+                        <Share2 className="h-3.5 w-3.5"/> Copy share link
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { demoActions.trashSession(s.id); toast({ title: "Moved to trash", description: s.name }); }}>
+                        <Trash2 className="h-3.5 w-3.5"/> Move to trash
+                      </DropdownMenuItem>
+                    </>
+                  ) : (
+                    <>
+                      <DropdownMenuItem onClick={() => { demoActions.restoreSession(s.id); toast({ title: "Restored", description: s.name }); }}>
+                        <RotateCcw className="h-3.5 w-3.5"/> Restore
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { demoActions.deleteSessionForever(s.id); toast({ title: "Deleted forever" }); }}>
+                        <Trash2 className="h-3.5 w-3.5"/> Delete forever
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
         </div>
       ))}
     </div>

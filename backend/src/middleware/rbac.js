@@ -10,16 +10,46 @@ const rbacService = require('../services/rbacService');
  * @returns {Function} Express middleware
  */
 function requireRole(...allowedRoles) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    const roomId = req.params.roomId || req.body.roomId || req.query.roomId;
+    const nodeId = req.params.nodeId || req.params.id || req.body.nodeId;
+
+    let workspaceRole = req.user.role;
+    if (req.accessToken && roomId) {
+      workspaceRole = await rbacService.getWorkspaceRoleForRoom(req.user.id, roomId, req.accessToken);
+    } else if (req.accessToken && nodeId) {
+      workspaceRole = await rbacService.getWorkspaceRoleForNode(req.user.id, nodeId, req.accessToken);
+    }
+
+    const normalizedRole = workspaceRole ? String(workspaceRole).toLowerCase() : null;
+    const normalizedAllowed = allowedRoles.map((role) => String(role).toLowerCase());
+
+    const roleRank = {
+      viewer: 1,
+      contributor: 2,
+      lead: 3,
+      owner: 4,
+    }[normalizedRole] || 0;
+
+    const minAllowedRank = normalizedAllowed.reduce((minRank, role) => {
+      const rank = {
+        viewer: 1,
+        contributor: 2,
+        lead: 3,
+        owner: 4,
+      }[role] || 0;
+      return Math.min(minRank, rank || minRank);
+    }, 4);
+
+    if (!roleRank || roleRank < minAllowedRank) {
       return res.status(403).json({ 
         error: 'Insufficient permissions',
         required: allowedRoles,
-        current: req.user.role,
+        current: workspaceRole || req.user.role,
       });
     }
 
@@ -44,7 +74,7 @@ function checkNodePermission(action = 'update') {
     }
 
     try {
-      const canMutate = await rbacService.canMutate(req.user.id, nodeId, action);
+      const canMutate = await rbacService.canMutate(req.user.id, nodeId, action, req.accessToken);
       
       if (!canMutate) {
         return res.status(403).json({ 
@@ -65,4 +95,58 @@ function checkNodePermission(action = 'update') {
 module.exports = {
   requireRole,
   checkNodePermission,
+  requireWorkspaceRole,
 };
+
+/**
+ * Workspace-level RBAC middleware factory
+ * Uses workspace_members to validate the user's role in a workspace
+ */
+function requireWorkspaceRole(...allowedRoles) {
+  return async (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const workspaceId = req.params.workspaceId || req.body.workspaceId || req.query.workspaceId;
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'workspaceId required' });
+    }
+
+    const workspaceRole = await rbacService.getWorkspaceRoleForWorkspace(
+      req.user.id,
+      workspaceId,
+      req.accessToken
+    );
+
+    const normalizedRole = workspaceRole ? String(workspaceRole).toLowerCase() : null;
+    const normalizedAllowed = allowedRoles.map((role) => String(role).toLowerCase());
+
+    const roleRank = {
+      viewer: 1,
+      contributor: 2,
+      lead: 3,
+      owner: 4,
+    }[normalizedRole] || 0;
+
+    const minAllowedRank = normalizedAllowed.reduce((minRank, role) => {
+      const rank = {
+        viewer: 1,
+        contributor: 2,
+        lead: 3,
+        owner: 4,
+      }[role] || 0;
+      return Math.min(minRank, rank || minRank);
+    }, 4);
+
+    if (!roleRank || roleRank < minAllowedRank) {
+      return res.status(403).json({
+        error: 'Insufficient permissions',
+        required: allowedRoles,
+        current: workspaceRole,
+      });
+    }
+
+    next();
+  };
+}

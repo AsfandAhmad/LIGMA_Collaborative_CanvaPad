@@ -13,6 +13,7 @@ import {
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { useDemo, demoActions } from "@/lib/demoStore";
+import { useAuth } from "@/lib/auth-context";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +24,9 @@ type Props = {
 };
 
 export function WorkspaceTopbar({ label = "/home", title = "Welcome back", showSearch = true }: Props) {
-  const user = useDemo(s => s.user);
+  const demoUser = useDemo(s => s.user);
+  const { user: authUser, logout } = useAuth();
+  const user = authUser || demoUser;
   const notifications = useDemo(s => s.notifications);
   const sessions = useDemo(s => s.sessions);
   const unread = notifications.filter(n => !n.read).length;
@@ -45,9 +48,9 @@ export function WorkspaceTopbar({ label = "/home", title = "Welcome back", showS
     router.push("/lobby");
   };
 
-  const handleLogout = () => {
-    demoActions.logout();
-    toast({ title: "Signed out", description: "Your demo session was cleared." });
+  const handleLogout = async () => {
+    await logout();
+    toast({ title: "Signed out", description: "You have been logged out." });
     router.push("/auth");
   };
 
@@ -56,7 +59,7 @@ export function WorkspaceTopbar({ label = "/home", title = "Welcome back", showS
       <div className="px-8 py-4 flex items-center gap-4">
         <div className="min-w-0">
           <div className="zine-label">{label}</div>
-          <h1 className="text-2xl font-bold tracking-tight truncate">{title}{title === "Welcome back" ? `, ${user.name.split(" ")[0]}` : ""}</h1>
+          <h1 className="text-2xl font-bold tracking-tight truncate">{title}{title === "Welcome back" && user?.name ? `, ${user.name.split(" ")[0]}` : ""}</h1>
         </div>
 
         {showSearch && (
@@ -144,13 +147,13 @@ export function WorkspaceTopbar({ label = "/home", title = "Welcome back", showS
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="h-9 w-9 rounded-full bg-gradient-blueprint flex items-center justify-center font-bold text-primary-foreground text-xs hover:opacity-90 transition-opacity">
-              {user.initials}
+              {user?.name ? user.name.split(" ").slice(0, 2).map(p => p[0]).join("").toUpperCase() : "?"}
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
             <DropdownMenuLabel>
-              <div className="font-medium">{user.name}</div>
-              <div className="text-xs text-muted-foreground font-normal truncate">{user.email}</div>
+              <div className="font-medium">{user?.name || "Guest"}</div>
+              <div className="text-xs text-muted-foreground font-normal truncate">{user?.email || ""}</div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild><Link href="/settings"><UserIcon className="h-3.5 w-3.5"/> Profile</Link></DropdownMenuItem>

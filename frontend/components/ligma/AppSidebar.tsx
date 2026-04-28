@@ -6,7 +6,8 @@ import { Home, Clock, Share2, LayoutTemplate, FolderKanban, Trash2, Settings, Pl
 import { Logo } from "./Logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useDemo, demoActions } from "@/lib/demoStore";
+import { useDemo } from "@/lib/demoStore";
+import { useAuth } from "@/lib/auth-context";
 import { toast } from "@/hooks/use-toast";
 
 const items = [
@@ -28,7 +29,9 @@ const folders = [
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const user = useDemo(s => s.user);
+  const demoUser = useDemo(s => s.user);
+  const { user: authUser } = useAuth();
+  const user = authUser || demoUser;
   
   return (
     <aside className="w-64 shrink-0 border-r-2 border-foreground/10 bg-sidebar h-screen sticky top-0 flex flex-col">
@@ -38,10 +41,12 @@ export function AppSidebar() {
 
       <div className="px-3 py-4">
         <button onClick={() => router.push("/settings")} className="w-full flex items-center gap-3 rounded-lg p-2 hover:bg-sidebar-accent transition-colors text-left">
-          <div className="h-9 w-9 rounded-full bg-gradient-blueprint flex items-center justify-center font-bold text-primary-foreground text-sm">{user.initials}</div>
+          <div className="h-9 w-9 rounded-full bg-gradient-blueprint flex items-center justify-center font-bold text-primary-foreground text-sm">
+            {user?.name ? user.name.split(" ").slice(0, 2).map(p => p[0]).join("").toUpperCase() : "?"}
+          </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium truncate">{user.name}</div>
-            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground truncate">{user.role}</div>
+            <div className="text-sm font-medium truncate">{user?.name || "Guest"}</div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground truncate">{user?.role || "viewer"}</div>
           </div>
         </button>
       </div>

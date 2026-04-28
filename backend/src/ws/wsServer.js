@@ -57,12 +57,13 @@ function assignUserColor(roomId) {
 async function handleRawWSConnection(ws, req) {
   try {
     // Parse and validate query parameters with JWT verification
-    const { roomId, user } = parseWsQuery(req);
+    const { roomId, user, token } = await parseWsQuery(req);
 
     // Attach user info to WebSocket
     ws.userId = user.id;
     ws.userRole = user.role;
     ws.roomId = roomId;
+    ws.accessToken = token;
     ws.userName = user.name || user.email;
     ws.userColor = assignUserColor(roomId);
 

@@ -331,7 +331,7 @@ function EditorContent() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-4">
-              {(["todo","done"] as const).map(col => {
+              {(["todo","in_progress","done"] as const).map(col => {
                 // Combine: canvas nodes with taskStatus + real backend tasks
                 const nodeItems = linkedTaskNotes.filter(n => n.taskStatus === col);
                 const backendItems = tasks.filter(t => t.status === col);

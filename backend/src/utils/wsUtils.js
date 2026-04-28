@@ -3,9 +3,9 @@
  * Eliminates code duplication between wsServer.js and yjsServer.js
  */
 
-const jwt = require('jsonwebtoken');
 const WebSocket = require('ws');
 const { AuthenticationError } = require('./errors');
+const { getUserForToken } = require('./supabase');
 
 /**
  * Parse and validate WebSocket connection query parameters
@@ -15,7 +15,7 @@ const { AuthenticationError } = require('./errors');
  * @returns {{ token: string, roomId: string, user: Object }}
  * @throws {AuthenticationError} If token or roomId is missing/invalid
  */
-function parseWsQuery(req) {
+async function parseWsQuery(req) {
   // Use modern URL API (consistent with yjsServer.js:242)
   const url = new URL(req.url, `http://${req.headers.host}`);
   const token = url.searchParams.get('token');
@@ -29,18 +29,22 @@ function parseWsQuery(req) {
     throw new AuthenticationError('RoomId required');
   }
 
-  try {
-    const user = jwt.verify(token, process.env.JWT_SECRET);
-    return { token, roomId, user };
-  } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      throw new AuthenticationError('Token expired');
-    }
-    if (error.name === 'JsonWebTokenError') {
-      throw new AuthenticationError('Invalid token');
-    }
-    throw new AuthenticationError('Authentication failed');
+  const user = await getUserForToken(token);
+
+  if (!user) {
+    throw new AuthenticationError('Invalid or expired token');
   }
+
+  return {
+    token,
+    roomId,
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.user_metadata?.role || 'Contributor',
+      name: user.user_metadata?.display_name || user.user_metadata?.full_name || user.email,
+    },
+  };
 }
 
 /**

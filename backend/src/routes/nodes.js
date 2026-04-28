@@ -15,7 +15,7 @@ const { requireRole, checkNodePermission } = require('../middleware/rbac');
 router.get('/:nodeId', authenticateToken, async (req, res) => {
   try {
     const { nodeId } = req.params;
-    const acl = await rbacService.getNodeAcl(nodeId);
+    const acl = await rbacService.getNodeAcl(nodeId, req.accessToken);
     
     res.json({
       nodeId,
@@ -59,10 +59,13 @@ router.patch('/:nodeId/lock', authenticateToken, requireRole('Lead'), async (req
 router.patch('/:nodeId/acl', authenticateToken, requireRole('Lead'), async (req, res) => {
   try {
     const { nodeId } = req.params;
-    const { allowedRoles, roomId } = req.body;
+    const allowedRoles = Array.isArray(req.body.allowedRoles)
+      ? req.body.allowedRoles
+      : req.body.acl?.allowedRoles;
+    const { roomId } = req.body;
 
-    if (!Array.isArray(allowedRoles) || !roomId) {
-      return res.status(400).json({ error: 'allowedRoles (array) and roomId required' });
+    if (!Array.isArray(allowedRoles)) {
+      return res.status(400).json({ error: 'allowedRoles (array) required' });
     }
 
     const validRoles = ['Lead', 'Contributor'];
@@ -76,7 +79,7 @@ router.patch('/:nodeId/acl', authenticateToken, requireRole('Lead'), async (req,
       });
     }
 
-    const acl = await rbacService.setNodeAcl(nodeId, roomId, allowedRoles);
+    const acl = await rbacService.setNodeAcl(nodeId, roomId, allowedRoles, req.accessToken);
     res.json({ success: true, acl });
   } catch (error) {
     console.error('Set node ACL error:', error);

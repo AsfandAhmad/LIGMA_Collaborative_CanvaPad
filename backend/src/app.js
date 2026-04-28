@@ -6,11 +6,13 @@
 
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 const authRoutes = require('./routes/auth');
 const canvasRoutes = require('./routes/canvas');
 const nodesRoutes = require('./routes/nodes');
 const tasksRoutes = require('./routes/tasks');
 const roomsRoutes = require('./routes/rooms');
+const workspacesRoutes = require('./routes/workspaces');
 const { AppError } = require('./utils/errors');
 
 const app = express();
@@ -19,13 +21,30 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const authLimiter = rateLimit({
+  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 900000),
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const apiLimiter = rateLimit({
+  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 900000),
+  max: Number(process.env.RATE_LIMIT_MAX_REQUESTS || 100),
+  keyGenerator: (req) => req.user?.id || req.ip,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Routes
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api', apiLimiter);
+app.use('/api/workspaces', workspacesRoutes);
 app.use('/api/canvas', canvasRoutes);
 app.use('/api/nodes', nodesRoutes);
 app.use('/api/tasks', tasksRoutes);

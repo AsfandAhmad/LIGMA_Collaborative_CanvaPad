@@ -1,14 +1,14 @@
-// POST /api/auth/register → create user, hash password, return JWT
-// POST /api/auth/login    → verify password, return JWT + role
-// Roles: "Lead", "Contributor", "Viewer"
+// POST /api/auth/register → create Supabase user, return access token
+// POST /api/auth/login    → verify password, return access token + role
+// Roles are stored in user metadata
 
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcrypt');
-const prisma = require('../db/prisma');
-const { generateToken } = require('../middleware/auth');
-
-const SALT_ROUNDS = 10;
+const { supabase } = require('../utils/supabase');
+const { syncUserProfile } = require('../services/profileService');
+const { ensureWorkspaceForUser } = require('../services/workspaceService');
+const { logAuthEvent } = require('../services/auditService');
+const { authenticateToken } = require('../middleware/auth');
 
 // Register new user
 router.post('/register', async (req, res) => {
@@ -31,39 +31,60 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          display_name: name,
+          role: userRole,
+        },
+      },
     });
 
-    if (existingUser) {
-      return res.status(409).json({ error: 'User already exists' });
+    if (error) {
+      if (error.message?.toLowerCase().includes('already registered')) {
+        return res.status(409).json({ error: 'User already exists' });
+      }
+      return res.status(400).json({ error: error.message || 'Registration failed' });
     }
 
-    // Hash password
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    const session = data?.session;
+    const user = data?.user;
 
-    // Create user
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        passwordHash,
-        role: userRole,
+    if (!session?.access_token) {
+      return res.status(202).json({
+        message: 'Check your email to confirm your account before signing in.',
+        user: user
+          ? {
+              id: user.id,
+              name: user.user_metadata?.display_name || name,
+              email: user.email,
+              role: user.user_metadata?.role || userRole,
+            }
+          : null,
+      });
+    }
+
+    res.status(201).json({
+      token: session.access_token,
+      user: {
+        id: user.id,
+        name: user.user_metadata?.display_name || name,
+        email: user.email,
+        role: user.user_metadata?.role || userRole,
       },
     });
 
-    // Generate JWT
-    const token = generateToken(user);
-
-    res.status(201).json({
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      },
+    await syncUserProfile(user, session.access_token);
+    await ensureWorkspaceForUser(user, session.access_token);
+    await logAuthEvent({
+      accessToken: session.access_token,
+      userId: user.id,
+      eventType: 'signup',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      success: true,
     });
   } catch (error) {
     console.error('Register error:', error);
@@ -81,37 +102,74 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'email and password required' });
     }
 
-    // Find user
-    const user = await prisma.user.findUnique({
-      where: { email },
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
 
-    if (!user) {
+    if (error || !data?.session || !data?.user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Verify password
-    const validPassword = await bcrypt.compare(password, user.passwordHash);
-
-    if (!validPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    // Generate JWT
-    const token = generateToken(user);
+    const { user, session } = data;
 
     res.json({
-      token,
+      token: session.access_token,
       user: {
         id: user.id,
-        name: user.name,
+        name: user.user_metadata?.display_name || user.user_metadata?.full_name || user.email,
         email: user.email,
-        role: user.role,
+        role: user.user_metadata?.role || 'Contributor',
       },
+    });
+
+    await syncUserProfile(user, session.access_token);
+    await ensureWorkspaceForUser(user, session.access_token);
+    await logAuthEvent({
+      accessToken: session.access_token,
+      userId: user.id,
+      eventType: 'login',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      success: true,
     });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Sync profile metadata after OAuth login
+router.post('/sync-profile', authenticateToken, async (req, res) => {
+  try {
+    const { data, error } = await supabase.auth.getUser(req.accessToken);
+
+    if (error || !data?.user) {
+      return res.status(401).json({ error: 'Invalid access token' });
+    }
+
+    const profile = await syncUserProfile(data.user, req.accessToken);
+    res.json({ success: true, profile });
+  } catch (error) {
+    console.error('Sync profile error:', error);
+    res.status(500).json({ error: 'Failed to sync profile' });
+  }
+});
+
+router.post('/logout', authenticateToken, async (req, res) => {
+  try {
+    await logAuthEvent({
+      accessToken: req.accessToken,
+      userId: req.user.id,
+      eventType: 'logout',
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      success: true,
+    });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ error: 'Logout failed' });
   }
 });
 

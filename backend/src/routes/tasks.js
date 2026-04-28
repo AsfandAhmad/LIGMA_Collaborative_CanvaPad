@@ -4,27 +4,55 @@
 
 const express = require('express');
 const router = express.Router();
-const prisma = require('../db/prisma');
 const { authenticateToken } = require('../middleware/auth');
+const { getSupabaseClientForToken } = require('../utils/supabase');
 
 // Get all tasks for a room
 router.get('/:roomId', authenticateToken, async (req, res) => {
   try {
     const { roomId } = req.params;
-    
-    const tasks = await prisma.task.findMany({
-      where: { roomId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        author: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-    });
+
+    const client = getSupabaseClientForToken(req.accessToken);
+    const { data, error } = await client
+      .from('tasks')
+      .select(`
+        id,
+        room_id,
+        source_node_id,
+        assigned_to,
+        created_by,
+        title,
+        status,
+        priority,
+        ai_intent,
+        due_date,
+        created_at,
+        updated_at,
+        users:created_by (id, display_name, email)
+      `)
+      .eq('room_id', roomId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ error: 'Failed to fetch tasks' });
+    }
+
+    const tasks = (data || []).map(task => ({
+      id: task.id,
+      roomId: task.room_id,
+      nodeId: task.source_node_id,
+      text: task.title,
+      status: task.status,
+      authorId: task.created_by,
+      createdAt: task.created_at,
+      author: task.users
+        ? {
+            id: task.users.id,
+            name: task.users.display_name || 'Unknown',
+            email: task.users.email,
+          }
+        : undefined,
+    }));
 
     res.json({ tasks });
   } catch (error) {
@@ -39,7 +67,7 @@ router.patch('/:taskId/status', authenticateToken, async (req, res) => {
     const { taskId } = req.params;
     const { status } = req.body;
 
-    const validStatuses = ['todo', 'done'];
+    const validStatuses = ['todo', 'in_progress', 'done'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ 
         error: 'Invalid status',
@@ -47,12 +75,19 @@ router.patch('/:taskId/status', authenticateToken, async (req, res) => {
       });
     }
 
-    const task = await prisma.task.update({
-      where: { id: taskId },
-      data: { status },
-    });
+    const client = getSupabaseClientForToken(req.accessToken);
+    const { data, error } = await client
+      .from('tasks')
+      .update({ status })
+      .eq('id', taskId)
+      .select('*')
+      .maybeSingle();
 
-    res.json({ success: true, task });
+    if (error || !data) {
+      return res.status(500).json({ error: 'Failed to update task status' });
+    }
+
+    res.json({ success: true, task: data });
   } catch (error) {
     console.error('Update task status error:', error);
     res.status(500).json({ error: 'Failed to update task status' });

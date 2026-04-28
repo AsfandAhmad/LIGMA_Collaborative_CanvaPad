@@ -40,6 +40,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     try {
       const response: AuthResponse = await authApi.login({ email, password });
+      if (!response.token) {
+        throw new Error('Login did not return an access token');
+      }
       authApi.saveAuth(response.token, response.user);
       setUser(response.user);
       toast({
@@ -60,6 +63,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = async (email: string, password: string, name: string) => {
     try {
       const response: AuthResponse = await authApi.register({ email, password, name });
+      if (!response.token) {
+        toast({
+          title: 'Check your email',
+          description: response.message || 'Confirm your account before signing in.',
+        });
+        return;
+      }
       authApi.saveAuth(response.token, response.user);
       setUser(response.user);
       toast({
@@ -77,8 +87,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const logout = () => {
-    authApi.logout();
+  const logout = async () => {
+    await authApi.logout();
     setUser(null);
     toast({
       title: 'Signed out',

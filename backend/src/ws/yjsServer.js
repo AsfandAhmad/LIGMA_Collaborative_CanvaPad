@@ -70,14 +70,15 @@ function getYDoc(roomId) {
  * @param {string} roomId - Room identifier
  * @returns {Promise<boolean>} True if all mutations allowed
  */
-async function checkYjsMutations(mutations, userId, roomId) {
+async function checkYjsMutations(mutations, userId, roomId, accessToken) {
   for (const mutation of mutations) {
     if (!mutation.nodeId) continue;
 
     const canMutate = await rbacService.canMutate(
       userId,
       mutation.nodeId,
-      mutation.operation
+      mutation.operation,
+      accessToken
     );
 
     if (!canMutate) {
@@ -149,13 +150,14 @@ async function logYjsMutations(mutations, roomId, userId) {
  * Authenticate WebSocket connection using JWT
  * Requirements: 1.2, 1.3
  */
-function authenticateYjsConnection(ws, req) {
+async function authenticateYjsConnection(ws, req) {
   try {
-    const { user, roomId } = parseWsQuery(req);
+    const { user, roomId, token } = await parseWsQuery(req);
     
     ws.userId = user.id;
     ws.userRole = user.role;
     ws.roomId = roomId;
+    ws.accessToken = token;
 
     console.log(`Yjs connection authenticated: User ${ws.userId} (${ws.userRole}) joined room ${roomId}`);
     return true;
@@ -172,8 +174,8 @@ function authenticateYjsConnection(ws, req) {
  * @param {WebSocket} ws - WebSocket connection
  * @param {http.IncomingMessage} req - HTTP request
  */
-function handleYjsConnection(ws, req) {
-  const authenticated = authenticateYjsConnection(ws, req);
+async function handleYjsConnection(ws, req) {
+  const authenticated = await authenticateYjsConnection(ws, req);
   if (!authenticated) return;
 
   const { roomId, userId } = ws;
@@ -255,7 +257,7 @@ function handleYjsConnection(ws, req) {
           
           // CRITICAL FIX: Decode and check RBAC BEFORE applying update
           const mutations = decodeYjsUpdate(update, prevStateUpdate);
-          const allowed = await checkYjsMutations(mutations, userId, roomId);
+          const allowed = await checkYjsMutations(mutations, userId, roomId, ws.accessToken);
           
           if (!allowed) {
             // RBAC violation - do NOT apply update, do NOT broadcast
@@ -280,7 +282,7 @@ function handleYjsConnection(ws, req) {
           
           // CRITICAL FIX: Decode and check RBAC BEFORE applying update
           const mutations = decodeYjsUpdate(update, prevStateUpdate);
-          const allowed = await checkYjsMutations(mutations, userId, roomId);
+          const allowed = await checkYjsMutations(mutations, userId, roomId, ws.accessToken);
           
           if (!allowed) {
             // RBAC violation - do NOT apply update, do NOT broadcast

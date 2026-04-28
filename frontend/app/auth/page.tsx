@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Logo } from "@/components/ligma/Logo";
 import { ScribbleArrow, StarBurst } from "@/components/ligma/Doodles";
 import { useAuth } from "@/lib/auth-context";
+import { supabase } from "@/lib/supabase";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -34,13 +35,21 @@ export default function Auth() {
     }
   };
 
-  const handleDemoLogin = async (provider: "google" | "github") => {
+  const handleGoogleLogin = async () => {
     setIsLoading(true);
     try {
-      // Demo login with preset credentials
-      await login(`demo-${provider}@ligma.app`, 'demo123');
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (error) {
+        console.error('Google auth error:', error);
+      }
     } catch (error) {
-      console.error('Demo login error:', error);
+      console.error('Google auth error:', error);
     } finally {
       setIsLoading(false);
     }
@@ -89,22 +98,14 @@ export default function Auth() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2">
             <Button 
               variant="outline" 
               className="h-11" 
-              onClick={() => handleDemoLogin("google")}
+              onClick={handleGoogleLogin}
               disabled={isLoading}
             >
               Continue with Google
-            </Button>
-            <Button 
-              variant="outline" 
-              className="h-11" 
-              onClick={() => handleDemoLogin("github")}
-              disabled={isLoading}
-            >
-              Continue with GitHub
             </Button>
           </div>
 

@@ -54,13 +54,14 @@ export interface LoginData {
 }
 
 export interface AuthResponse {
-  token: string;
+  token?: string;
   user: {
     id: string;
     email: string;
     name: string;
     role: string;
   };
+  message?: string;
 }
 
 export const authApi = {
@@ -78,11 +79,21 @@ export const authApi = {
     });
   },
 
-  logout: () => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('user');
+  logout: async () => {
+    try {
+      await fetchWithAuth('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // ignore audit failures
+    } finally {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+      }
     }
+  },
+
+  syncProfile: async (): Promise<any> => {
+    return fetchWithAuth('/api/auth/sync-profile', { method: 'POST' });
   },
 
   saveAuth: (token: string, user: any) => {
@@ -159,7 +170,7 @@ export interface Task {
   roomId: string;
   nodeId: string;
   text: string;       // backend field name
-  status: 'todo' | 'done';
+  status: 'todo' | 'in_progress' | 'done';
   authorId: string;
   createdAt: string;
   author?: {
@@ -217,6 +228,69 @@ export const roomsApi = {
   getRoom: async (roomId: string): Promise<Room> => {
     const res = await fetchWithAuth(`/api/rooms/${roomId}`);
     return res.room ?? res;
+  },
+};
+
+// ============================================================================
+// WORKSPACES API
+// ============================================================================
+
+export interface Workspace {
+  id: string;
+  name: string;
+  slug: string;
+  owner_id: string;
+  created_at: string;
+  role?: string;
+}
+
+export interface WorkspaceMember {
+  id: string;
+  role: string;
+  joinedAt: string;
+  profile: {
+    id: string;
+    email: string;
+    display_name: string | null;
+    avatar_url: string | null;
+  } | null;
+}
+
+export const workspacesApi = {
+  getWorkspaces: async (): Promise<Workspace[]> => {
+    const res = await fetchWithAuth('/api/workspaces');
+    return res.workspaces ?? res;
+  },
+  getPrimary: async (): Promise<Workspace | null> => {
+    const res = await fetchWithAuth('/api/workspaces/primary');
+    return res.workspace ?? null;
+  },
+  createWorkspace: async (name: string, slug?: string): Promise<Workspace> => {
+    const res = await fetchWithAuth('/api/workspaces', {
+      method: 'POST',
+      body: JSON.stringify({ name, slug }),
+    });
+    return res.workspace ?? res;
+  },
+  getWorkspace: async (workspaceId: string): Promise<Workspace> => {
+    const res = await fetchWithAuth(`/api/workspaces/${workspaceId}`);
+    return res.workspace ?? res;
+  },
+  getMembers: async (workspaceId: string): Promise<WorkspaceMember[]> => {
+    const res = await fetchWithAuth(`/api/workspaces/${workspaceId}/members`);
+    return res.members ?? res;
+  },
+  addMember: async (workspaceId: string, email: string, role: string): Promise<any> => {
+    return fetchWithAuth(`/api/workspaces/${workspaceId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ email, role }),
+    });
+  },
+  updateMemberRole: async (workspaceId: string, memberId: string, role: string): Promise<any> => {
+    return fetchWithAuth(`/api/workspaces/${workspaceId}/members/${memberId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
   },
 };
 
