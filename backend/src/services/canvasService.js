@@ -6,10 +6,10 @@
 // Called when a new user joins a room
 
 const prisma = require('../db/prisma');
-const Anthropic = require('@anthropic-ai/sdk');
+const Groq = require('groq-sdk');
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
 });
 
 /**
@@ -34,6 +34,7 @@ async function getCanvasState(roomId) {
 
     switch (type) {
       case 'NODE_CREATED':
+      case 'CRDT_NODE_CREATED':
         nodes.set(payload.nodeId, {
           id: payload.nodeId,
           ...payload,
@@ -42,6 +43,7 @@ async function getCanvasState(roomId) {
         break;
 
       case 'NODE_UPDATED':
+      case 'CRDT_NODE_UPDATED':
         if (nodes.has(payload.nodeId)) {
           const node = nodes.get(payload.nodeId);
           nodes.set(payload.nodeId, { ...node, ...payload });
@@ -49,6 +51,7 @@ async function getCanvasState(roomId) {
         break;
 
       case 'NODE_DELETED':
+      case 'CRDT_NODE_DELETED':
         if (nodes.has(payload.nodeId)) {
           const node = nodes.get(payload.nodeId);
           nodes.set(payload.nodeId, { ...node, deleted: true });
@@ -56,6 +59,7 @@ async function getCanvasState(roomId) {
         break;
 
       case 'NODE_MOVED':
+      case 'CRDT_NODE_MOVED':
         if (nodes.has(payload.nodeId)) {
           const node = nodes.get(payload.nodeId);
           nodes.set(payload.nodeId, {
@@ -93,7 +97,7 @@ async function getCanvasState(roomId) {
 }
 
 /**
- * Export canvas summary using Claude API
+ * Export canvas summary using Groq AI (Llama 3)
  * Summarizes all canvas nodes into a coherent document
  * @param {string} roomId - Room ID
  * @returns {Promise<string>} Markdown summary
@@ -112,13 +116,7 @@ async function exportCanvasSummary(roomId) {
   }).join('\n\n');
 
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 2048,
-      messages: [
-        {
-          role: 'user',
-          content: `You are summarizing a collaborative canvas workspace. Below are all the nodes from the canvas. Create a well-structured markdown summary that:
+    const prompt = `You are summarizing a collaborative canvas workspace. Below are all the nodes from the canvas. Create a well-structured markdown summary that:
 
 1. Groups related content together
 2. Identifies key decisions, action items, and questions
@@ -128,12 +126,22 @@ async function exportCanvasSummary(roomId) {
 Canvas Nodes:
 ${nodeContents}
 
-Generate a comprehensive summary in markdown format:`,
+Generate a comprehensive summary in markdown format:`;
+
+    // Call Groq API with Llama 3
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
         },
       ],
+      model: 'llama-3.3-70b-versatile', // Fast and powerful
+      temperature: 0.7,
+      max_tokens: 2048,
     });
 
-    const summary = message.content[0].text;
+    const summary = chatCompletion.choices[0]?.message?.content || '';
 
     // Add metadata header
     const room = await prisma.room.findUnique({
@@ -141,7 +149,7 @@ Generate a comprehensive summary in markdown format:`,
       select: { name: true, createdAt: true },
     });
 
-    const header = `# Canvas Summary: ${room?.name || 'Untitled'}\n\n**Generated:** ${new Date().toISOString()}\n**Total Nodes:** ${nodes.length}\n\n---\n\n`;
+    const header = `# Canvas Summary: ${room?.name || 'Untitled'}\n\n**Generated:** ${new Date().toISOString()}\n**Total Nodes:** ${nodes.length}\n**AI Model:** Llama 3.3 70B (Groq)\n\n---\n\n`;
 
     return header + summary;
   } catch (error) {

@@ -1,15 +1,15 @@
-// classifyNodeIntent(text) → calls Claude API
+// classifyNodeIntent(text) → calls Groq AI (Llama 3)
 //   Prompt: "Classify this text as one of: action_item, decision, question, reference.
 //            Return JSON: { intent, confidence }"
 //   If intent === "action_item": call eventService.insertEvent("TASK_CREATED", ...)
 //   Debounce: only call AI after user stops typing for 1500ms
 //   Returns: { intent: "action_item" | "decision" | "question" | "reference" }
 
-const Anthropic = require('@anthropic-ai/sdk');
+const Groq = require('groq-sdk');
 const eventService = require('./eventService');
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
 });
 
 // Debounce map: nodeId -> timeout
@@ -17,7 +17,7 @@ const debounceTimers = new Map();
 const DEBOUNCE_DELAY = 1500;
 
 /**
- * Classify node text intent using Claude API with debouncing
+ * Classify node text intent using Groq AI (Llama 3) with debouncing
  * @param {string} text - The node text to classify
  * @param {string} nodeId - The node ID
  * @param {string} roomId - The room ID
@@ -48,7 +48,7 @@ async function classifyNodeIntent(text, nodeId, roomId, userId) {
 }
 
 /**
- * Perform the actual classification using Claude API
+ * Perform the actual classification using Groq AI (Llama 3)
  */
 async function performClassification(text, nodeId, roomId, userId) {
   if (!text || text.trim().length === 0) {
@@ -56,13 +56,7 @@ async function performClassification(text, nodeId, roomId, userId) {
   }
 
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 256,
-      messages: [
-        {
-          role: 'user',
-          content: `Classify the following text into one of these categories: action_item, decision, question, reference.
+    const prompt = `Classify the following text into one of these categories: action_item, decision, question, reference.
 
 Rules:
 - action_item: Tasks, todos, things that need to be done
@@ -73,20 +67,48 @@ Rules:
 Return ONLY valid JSON in this exact format:
 {"intent": "category", "confidence": 0.95}
 
-Text to classify: "${text}"`,
+Text to classify: "${text}"`;
+
+    // Call Groq API with Llama 3
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
         },
       ],
+      model: 'llama-3.3-70b-versatile', // Fast and accurate
+      temperature: 0.3, // Lower temperature for more consistent classification
+      max_tokens: 100,
+      response_format: { type: 'json_object' }, // Force JSON response
     });
 
-    // Parse Claude's response
-    const responseText = message.content[0].text.trim();
-    const result = JSON.parse(responseText);
+    // Parse Groq's response
+    const responseText = chatCompletion.choices[0]?.message?.content || '{}';
+    
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (parseError) {
+      // Try to extract JSON from response
+      const jsonMatch = responseText.match(/\{[^}]+\}/);
+      if (jsonMatch) {
+        result = JSON.parse(jsonMatch[0]);
+      } else {
+        throw parseError;
+      }
+    }
 
     // Validate response
     const validIntents = ['action_item', 'decision', 'question', 'reference'];
     if (!validIntents.includes(result.intent)) {
       result.intent = 'reference';
       result.confidence = 0.5;
+    }
+
+    // Ensure confidence is a number
+    if (typeof result.confidence !== 'number') {
+      result.confidence = parseFloat(result.confidence) || 0.5;
     }
 
     // If classified as action_item, create a task
@@ -100,7 +122,7 @@ Text to classify: "${text}"`,
 
     return result;
   } catch (error) {
-    console.error('Intent classification error:', error);
+    console.error('Intent classification error:', error.message);
     // Fallback to reference on error
     return { intent: 'reference', confidence: 0.0 };
   }
