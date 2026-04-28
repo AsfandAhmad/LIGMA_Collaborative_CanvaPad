@@ -43,16 +43,22 @@ export class YjsProvider {
     }
 
     this.onStatus?.('connecting');
+    console.log(`[YjsProvider] Connecting to room ${this.roomId}...`);
 
     try {
       const url = `${WS_URL}/yjs?token=${encodeURIComponent(this.token)}&roomId=${encodeURIComponent(this.roomId)}`;
+      console.log(`[YjsProvider] WebSocket URL: ${url.replace(this.token, 'TOKEN_HIDDEN')}`);
+      
       this.ws = new WebSocket(url);
       this.ws.binaryType = 'arraybuffer';
 
       this.ws.onopen = () => {
-        console.log(`[YjsProvider] Connected to room ${this.roomId}`);
+        console.log(`✅ [YjsProvider] Connected to room ${this.roomId}`);
         this.reconnectAttempts = 0;
         this.onStatus?.('connected');
+        
+        // Send initial sync request
+        this.sendSyncStep1();
       };
 
       this.ws.onmessage = (event) => {
@@ -60,7 +66,19 @@ export class YjsProvider {
       };
 
       this.ws.onclose = (event) => {
-        console.log(`[YjsProvider] Disconnected from room ${this.roomId}`, event.code, event.reason);
+        console.error(`❌ [YjsProvider] Disconnected from room ${this.roomId}`, {
+          code: event.code,
+          reason: event.reason || 'No reason provided',
+          wasClean: event.wasClean
+        });
+        
+        // Log specific close codes
+        if (event.code === 1008) {
+          console.error('❌ Authentication failed - invalid or expired token');
+        } else if (event.code === 1006) {
+          console.error('❌ Connection closed abnormally - check backend is running');
+        }
+        
         this.onStatus?.('disconnected');
         this.synced = false;
         this.onSync?.(false);
@@ -69,15 +87,16 @@ export class YjsProvider {
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
           this.reconnectAttempts++;
           const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
-          console.log(`[YjsProvider] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+          console.log(`[YjsProvider] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
           this.reconnectTimeout = setTimeout(() => this.connect(), delay);
         } else {
+          console.error('❌ Max reconnection attempts reached');
           this.onError?.(new Error('Max reconnection attempts reached'));
         }
       };
 
       this.ws.onerror = (error) => {
-        console.error('[YjsProvider] WebSocket error:', error);
+        console.error('❌ [YjsProvider] WebSocket error:', error);
         this.onError?.(new Error('WebSocket connection error'));
       };
 
@@ -85,7 +104,7 @@ export class YjsProvider {
       this.doc.on('update', this.handleLocalUpdate);
 
     } catch (error) {
-      console.error('[YjsProvider] Connection error:', error);
+      console.error('❌ [YjsProvider] Connection error:', error);
       this.onError?.(error as Error);
     }
   }

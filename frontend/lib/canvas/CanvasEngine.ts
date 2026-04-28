@@ -263,7 +263,7 @@ export class CanvasEngine {
       const minY = Math.min(n.startY, n.endY);
       const maxX = Math.max(n.startX, n.endX);
       const maxY = Math.max(n.startY, n.endY);
-      return viewport.isRectVisible(minX, minY, maxX - minX, maxY - minY);
+      return this.viewport.isRectVisible(minX, minY, maxX - minX, maxY - minY);
     }
     if (node.type === 'freedraw') {
       const n = node as any;

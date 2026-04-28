@@ -49,6 +49,7 @@ export function CanvasWrapper({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [zoom, setZoom] = useState(100);
   const [viewport, setViewport] = useState<Viewport | null>(null);
+  const [viewportTick, setViewportTick] = useState(0); // forces overlay re-render on pan/zoom
   const engineRef = useRef<CanvasEngine | null>(null);
 
   // Sync external selection (e.g. clicking a note in the right panel)
@@ -73,21 +74,20 @@ export function CanvasWrapper({
     [onSelectionChange]
   );
 
-  // Cursor move — convert scene coords to screen for presence
+  // Cursor move
   const handleCursorMove = useCallback(
     (sceneX: number, sceneY: number) => {
       onCursorMove(sceneX, sceneY);
+      // Tick so cursor overlay re-renders with updated viewport during pan
+      setViewportTick(t => t + 1);
     },
     [onCursorMove]
   );
 
-  // Zoom change from engine
+  // Zoom change from engine — tick forces NodeOverlay + CursorLayer to re-render
   const handleZoomChange = useCallback((z: number) => {
     setZoom(Math.round(z * 100));
-    // Force re-render of overlays with new viewport state
-    if (engineRef.current) {
-      setViewport({ ...engineRef.current.getViewport() } as any);
-    }
+    setViewportTick(t => t + 1);
   }, []);
 
   // Tool change
@@ -163,13 +163,14 @@ export function CanvasWrapper({
         nodes={domNodes}
         selectedIds={selectedIds}
         viewport={viewport}
+        viewportTick={viewportTick}
         onSelect={handleStickySelect}
         onUpdate={handleStickyDragUpdate}
         onDragEnd={handleStickyDragEnd}
       />
 
       {/* ── DOM overlay: remote cursors ── */}
-      <CursorLayer cursors={cursors} viewport={viewport} />
+      <CursorLayer cursors={cursors} viewport={viewport} viewportTick={viewportTick} />
 
       {/* ── Tool bar (left side) ── */}
       <ToolBar activeTool={activeTool} onToolChange={handleToolChange} />

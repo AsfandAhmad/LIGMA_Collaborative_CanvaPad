@@ -17,7 +17,9 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "setupFiles": ["./src/ws/__tests__/jest.setup.js"],
+    "setupFiles": [
+      "./src/ws/__tests__/jest.setup.js"
+    ],
     "testTimeout": 10000
   },
   "keywords": [
@@ -45,6 +47,7 @@
   "devDependencies": {
     "jest": "^30.3.0",
     "nodemon": "^3.1.9",
+    "pg": "^8.20.0",
     "prisma": "^5.22.0"
   }
 }

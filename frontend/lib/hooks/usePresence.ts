@@ -66,70 +66,81 @@ export function usePresence(options: UsePresenceOptions): UsePresenceReturn {
     if (!user) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const token = localStorage.getItem('auth_token');
-    if (!token) {
-      console.error('[usePresence] No auth token found');
-      return;
-    }
+    const getToken = async (): Promise<string | null> => {
+      try {
+        const { supabase } = await import('../supabase');
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.access_token) {
+          localStorage.setItem('auth_token', data.session.access_token);
+          return data.session.access_token;
+        }
+      } catch {
+        // fall through
+      }
+      return localStorage.getItem('auth_token');
+    };
 
-    try {
-      const url = `${WS_URL}/ws?token=${encodeURIComponent(token)}&roomId=${encodeURIComponent(roomId)}`;
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
-      globalWs = ws;
+    getToken().then((token) => {
+      if (!token) {
+        console.warn('[usePresence] No auth token — cursors disabled');
+        return;
+      }
 
-      ws.onopen = () => {
-        console.log(`[usePresence] Connected to room ${roomId}`);
-        setIsConnected(true);
-        reconnectAttemptsRef.current = 0;
-      };
+      try {
+        const url = `${WS_URL}/ws?token=${encodeURIComponent(token)}&roomId=${encodeURIComponent(roomId)}`;
+        const ws = new WebSocket(url);
+        wsRef.current = ws;
+        globalWs = ws;
 
-      ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
+        ws.onopen = () => {
+          setIsConnected(true);
+          reconnectAttemptsRef.current = 0;
+        };
 
-          if (message.type === 'CURSOR_MOVE') {
-            const { userId, userName, userColor, x, y } = message.payload;
-            awarenessRef.current?.updateCursor(userId, { userName, userColor, x, y });
-          } else if (message.type === 'CURSOR_SNAPSHOT') {
-            // Initial cursor positions from server
-            message.cursors?.forEach((cursor: UserCursor) => {
-              awarenessRef.current?.updateCursor(cursor.userId, {
-                userName: cursor.userName,
-                userColor: cursor.userColor,
-                x: cursor.x,
-                y: cursor.y,
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            if (message.type === 'CURSOR_MOVE') {
+              const { userId, userName, userColor, x, y } = message.payload ?? message;
+              awarenessRef.current?.updateCursor(userId ?? message.userId, {
+                userName: userName ?? message.userName,
+                userColor: userColor ?? message.color,
+                x, y,
               });
-            });
-          } else if (message.type === 'USER_LEFT') {
-            awarenessRef.current?.removeCursor(message.userId);
+            } else if (message.type === 'CURSOR_SNAPSHOT') {
+              message.cursors?.forEach((cursor: UserCursor) => {
+                awarenessRef.current?.updateCursor(cursor.userId, {
+                  userName: cursor.userName,
+                  userColor: cursor.userColor,
+                  x: cursor.x,
+                  y: cursor.y,
+                });
+              });
+            } else if (message.type === 'USER_LEFT') {
+              awarenessRef.current?.removeCursor(message.userId);
+            }
+          } catch (error) {
+            console.error('[usePresence] Message parse error:', error);
           }
-        } catch (error) {
-          console.error('[usePresence] Message parse error:', error);
-        }
-      };
+        };
 
-      ws.onclose = (event) => {
-        console.log(`[usePresence] Disconnected from room ${roomId}`, event.code, event.reason);
-        setIsConnected(false);
-        awarenessRef.current?.clear();
+        ws.onclose = () => {
+          setIsConnected(false);
+          awarenessRef.current?.clear();
+          if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+            reconnectAttemptsRef.current++;
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+            reconnectTimeoutRef.current = setTimeout(() => connect(), delay);
+          }
+        };
 
-        // Attempt reconnection
-        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-          reconnectAttemptsRef.current++;
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
-          console.log(`[usePresence] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
-          reconnectTimeoutRef.current = setTimeout(() => connect(), delay);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('[usePresence] WebSocket error:', error);
-      };
-
-    } catch (error) {
-      console.error('[usePresence] Connection error:', error);
-    }
+        ws.onerror = () => {
+          // Silently handle — onclose will fire next and handle reconnect
+        };
+      } catch (error) {
+        console.warn('[usePresence] Connection error:', error);
+      }
+    });
   }, [roomId, user]);
 
   // Disconnect from WebSocket

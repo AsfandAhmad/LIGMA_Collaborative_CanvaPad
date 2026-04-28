@@ -31,6 +31,7 @@ interface NodeOverlayProps {
   nodes: (StickyNoteNode | TextNode)[];
   selectedIds: string[];
   viewport: Viewport | null;
+  viewportTick?: number;
   onSelect: (id: string, multi: boolean) => void;
   onUpdate: (id: string, updates: Partial<StickyNoteNode | TextNode>) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
@@ -40,6 +41,7 @@ export function NodeOverlay({
   nodes,
   selectedIds,
   viewport,
+  viewportTick: _tick,
   onSelect,
   onUpdate,
   onDragEnd,

@@ -66,27 +66,59 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
 
   // Connect to backend
   const connect = useCallback(() => {
-    if (!syncManagerRef.current || !user) return;
-
-    const token = localStorage.getItem('auth_token');
-    if (!token) {
-      console.error('[useCanvas] No auth token found');
+    if (!syncManagerRef.current || !user) {
+      console.warn('[useCanvas] Cannot connect - missing syncManager or user');
       return;
     }
 
-    syncManagerRef.current.connect(roomId, token, {
-      onSync: (synced) => {
-        setIsSynced(synced);
-        console.log(`[useCanvas] Sync status: ${synced}`);
-      },
-      onStatus: (newStatus) => {
-        setStatus(newStatus);
-        setIsConnected(newStatus === 'connected');
-        console.log(`[useCanvas] Connection status: ${newStatus}`);
-      },
-      onError: (error) => {
-        console.error('[useCanvas] Error:', error);
-      },
+    console.log(`[useCanvas] Initiating connection for user: ${user.id}`);
+
+    // Try Supabase session first (fresh token), fall back to localStorage
+    const getToken = async (): Promise<string | null> => {
+      try {
+        // Dynamically import supabase to get fresh session token
+        const { supabase } = await import('../supabase');
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.access_token) {
+          // Keep localStorage in sync
+          localStorage.setItem('auth_token', data.session.access_token);
+          console.log('[useCanvas] Using Supabase session token');
+          return data.session.access_token;
+        }
+      } catch {
+        // supabase not available, fall through to localStorage
+      }
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        console.log('[useCanvas] Using localStorage token');
+      }
+      return token;
+    };
+
+    getToken().then(async (token) => {
+      if (!token) {
+        console.error('❌ [useCanvas] No auth token — canvas will work offline (no sync)');
+        console.error('❌ Please log in to enable real-time sync');
+        return;
+      }
+      
+      console.log(`[useCanvas] Token found, connecting to room: ${roomId}`);
+      
+      // Connect is now async to load initial state
+      await syncManagerRef.current?.connect(roomId, token, {
+        onSync: (synced) => {
+          console.log(`[useCanvas] Sync status changed: ${synced}`);
+          setIsSynced(synced);
+        },
+        onStatus: (newStatus) => {
+          console.log(`[useCanvas] Connection status changed: ${newStatus}`);
+          setStatus(newStatus);
+          setIsConnected(newStatus === 'connected');
+        },
+        onError: (error) => {
+          console.error('❌ [useCanvas] Connection error:', error.message);
+        },
+      });
     });
   }, [roomId, user]);
 
@@ -112,12 +144,12 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
 
   // Add a new node
   const addNode = useCallback((node: Omit<CanvasNode, 'id' | 'createdBy' | 'createdAt'>): string => {
-    if (!syncManagerRef.current || !user) return '';
+    if (!syncManagerRef.current) return '';
 
     const nodeId = `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const fullNode: Omit<CanvasNode, 'id'> = {
       ...node,
-      createdBy: user.id,
+      createdBy: user?.id || 'local',
       createdAt: new Date().toISOString(),
     };
 

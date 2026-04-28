@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Play, Users, Clock, ListChecks, Activity, Lock, Sparkles, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,12 +22,15 @@ const tabs = ["Overview", "Tasks", "Members", "Activity", "Settings"] as const;
 type Tab = typeof tabs[number];
 
 export default function Lobby() {
+  const searchParams = useSearchParams();
+  const roomId = searchParams?.get('roomId') || 'sprint-44-kickoff'; // Default room for demo
+  
   const [tab, setTab] = useState<Tab>("Overview");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
 
   const share = () => {
-    const url = "https://ligma.app/s/sprint-44-kickoff";
+    const url = `${window.location.origin}/lobby?roomId=${roomId}`;
     navigator.clipboard?.writeText(url).catch(()=>{});
     toast({ title: "Share link copied", description: url });
   };
@@ -53,7 +57,7 @@ export default function Lobby() {
             <div className="ml-auto flex items-center gap-2">
               <Button variant="ghost" size="sm" onClick={share}>Share</Button>
               <Button variant="outline" size="sm" onClick={() => setInviteOpen(true)}><UserPlus className="h-3.5 w-3.5"/> Invite</Button>
-              <Button asChild variant="paper" size="sm"><Link href="/editor"><Play className="h-3.5 w-3.5"/> Enter session</Link></Button>
+              <Button asChild variant="paper" size="sm"><Link href={`/editor?roomId=${roomId}`}><Play className="h-3.5 w-3.5"/> Enter session</Link></Button>
             </div>
           </div>
           <div className="px-8 flex items-center gap-1">

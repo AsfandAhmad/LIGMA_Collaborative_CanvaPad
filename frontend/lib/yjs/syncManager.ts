@@ -27,19 +27,75 @@ export class SyncManager {
   /**
    * Connect to backend Yjs server
    */
-  public connect(roomId: string, token: string, callbacks?: {
+  public async connect(roomId: string, token: string, callbacks?: {
     onSync?: (synced: boolean) => void;
     onStatus?: (status: 'connecting' | 'connected' | 'disconnected') => void;
     onError?: (error: Error) => void;
   }) {
+    console.log(`[SyncManager] Connecting to room: ${roomId}`);
+    
     if (this.provider) {
       this.provider.disconnect();
     }
 
+    // Try to load initial canvas state from API, but don't block if it fails
+    try {
+      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/canvas/${roomId}`;
+      console.log(`[SyncManager] Fetching initial state from: ${apiUrl}`);
+      
+      const response = await fetch(apiUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Populate Yjs document with persisted nodes
+        if (data.nodes && Array.isArray(data.nodes)) {
+          console.log(`✅ [SyncManager] Loading ${data.nodes.length} persisted nodes from database`);
+          
+          // Clear existing nodes first
+          this.nodesMap.clear();
+          
+          // Add each persisted node to Yjs
+          for (const node of data.nodes) {
+            const { id, ...nodeData } = node;
+            this.nodesMap.set(id, nodeData);
+          }
+          
+          console.log(`✅ [SyncManager] Loaded ${this.nodesMap.size} nodes into Yjs document`);
+        } else {
+          console.log(`[SyncManager] No persisted nodes found (new room)`);
+        }
+      } else {
+        console.warn(`⚠️ [SyncManager] API returned ${response.status}, continuing with WebSocket only`);
+        // Don't throw - WebSocket sync will still work for real-time collaboration
+      }
+    } catch (error) {
+      console.warn('⚠️ [SyncManager] Could not load initial state, continuing with WebSocket only:', error.message);
+      // Continue anyway - WebSocket sync will work even without initial state
+      // This allows the app to work even if the API endpoint is broken
+    }
+
+    // Now connect WebSocket for real-time sync
+    console.log(`[SyncManager] Opening WebSocket connection...`);
     this.provider = new YjsProvider(this.doc, {
       roomId,
       token,
-      ...callbacks,
+      onSync: (synced) => {
+        console.log(`[SyncManager] Sync status: ${synced ? 'synced' : 'syncing'}`);
+        callbacks?.onSync?.(synced);
+      },
+      onStatus: (status) => {
+        console.log(`[SyncManager] Connection status: ${status}`);
+        callbacks?.onStatus?.(status);
+      },
+      onError: (error) => {
+        console.error(`❌ [SyncManager] Error:`, error);
+        callbacks?.onError?.(error);
+      },
     });
   }
 

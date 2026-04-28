@@ -18,82 +18,102 @@ const groq = new Groq({
  * @returns {Promise<{nodes: Array, version: number}>}
  */
 async function getCanvasState(roomId) {
-  // Fetch all events for the room in chronological order
-  const events = await prisma.event.findMany({
-    where: { roomId },
-    orderBy: { timestamp: 'asc' },
-  });
+  console.log(`[CanvasService] Getting canvas state for room: ${roomId}`);
+  
+  try {
+    // Fetch all events for the room in chronological order
+    const events = await prisma.event.findMany({
+      where: { roomId },
+      orderBy: { timestamp: 'asc' },
+    });
 
-  // Reconstruct state by replaying events
-  const nodes = new Map();
-  let latestEventId = 0;
+    console.log(`[CanvasService] Found ${events.length} events for room: ${roomId}`);
 
-  for (const event of events) {
-    latestEventId = event.id;
-    const { type, payload } = event;
+    // Reconstruct state by replaying events
+    const nodes = new Map();
+    let latestEventId = 0;
 
-    switch (type) {
-      case 'NODE_CREATED':
-      case 'CRDT_NODE_CREATED':
-        nodes.set(payload.nodeId, {
-          id: payload.nodeId,
-          ...payload,
-          deleted: false,
-        });
-        break;
+    for (const event of events) {
+      latestEventId = event.id;
+      const { type, payload } = event;
 
-      case 'NODE_UPDATED':
-      case 'CRDT_NODE_UPDATED':
-        if (nodes.has(payload.nodeId)) {
-          const node = nodes.get(payload.nodeId);
-          nodes.set(payload.nodeId, { ...node, ...payload });
-        }
-        break;
-
-      case 'NODE_DELETED':
-      case 'CRDT_NODE_DELETED':
-        if (nodes.has(payload.nodeId)) {
-          const node = nodes.get(payload.nodeId);
-          nodes.set(payload.nodeId, { ...node, deleted: true });
-        }
-        break;
-
-      case 'NODE_MOVED':
-      case 'CRDT_NODE_MOVED':
-        if (nodes.has(payload.nodeId)) {
-          const node = nodes.get(payload.nodeId);
+      switch (type) {
+        case 'NODE_CREATED':
+        case 'CRDT_NODE_CREATED':
           nodes.set(payload.nodeId, {
-            ...node,
-            x: payload.x,
-            y: payload.y,
+            id: payload.nodeId,
+            ...payload,
+            deleted: false,
           });
-        }
-        break;
+          break;
 
-      case 'LOCK_NODE':
-        if (nodes.has(payload.nodeId)) {
-          const node = nodes.get(payload.nodeId);
-          nodes.set(payload.nodeId, {
-            ...node,
-            locked: payload.locked,
-            lockedBy: payload.lockedBy,
-          });
-        }
-        break;
+        case 'NODE_UPDATED':
+        case 'CRDT_NODE_UPDATED':
+          if (nodes.has(payload.nodeId)) {
+            const node = nodes.get(payload.nodeId);
+            nodes.set(payload.nodeId, { ...node, ...payload });
+          }
+          break;
 
-      case 'RESET':
-        nodes.clear();
-        break;
+        case 'NODE_DELETED':
+        case 'CRDT_NODE_DELETED':
+          if (nodes.has(payload.nodeId)) {
+            const node = nodes.get(payload.nodeId);
+            nodes.set(payload.nodeId, { ...node, deleted: true });
+          }
+          break;
+
+        case 'NODE_MOVED':
+        case 'CRDT_NODE_MOVED':
+          if (nodes.has(payload.nodeId)) {
+            const node = nodes.get(payload.nodeId);
+            nodes.set(payload.nodeId, {
+              ...node,
+              x: payload.x,
+              y: payload.y,
+            });
+          }
+          break;
+
+        case 'LOCK_NODE':
+          if (nodes.has(payload.nodeId)) {
+            const node = nodes.get(payload.nodeId);
+            nodes.set(payload.nodeId, {
+              ...node,
+              locked: payload.locked,
+              lockedBy: payload.lockedBy,
+            });
+          }
+          break;
+
+        case 'RESET':
+          nodes.clear();
+          break;
+      }
     }
+
+    // Filter out deleted nodes and convert to array
+    const activeNodes = Array.from(nodes.values()).filter(node => !node.deleted);
+
+    console.log(`[CanvasService] Returning ${activeNodes.length} active nodes`);
+
+    return {
+      nodes: activeNodes,
+      version: latestEventId,
+    };
+  } catch (error) {
+    console.error('[CanvasService] Database error in getCanvasState:', error.message);
+    console.warn('[CanvasService] Falling back to empty state (using in-memory Yjs only)');
+    
+    // Fallback: Return empty state when database is unavailable
+    // Real-time sync will still work via Yjs WebSocket
+    return {
+      nodes: [],
+      version: 0,
+      fallback: true,
+      message: 'Database unavailable - using real-time sync only'
+    };
   }
-
-  // Filter out deleted nodes and convert to array
-  const activeNodes = Array.from(nodes.values()).filter(node => !node.deleted);
-
-  return {
-    nodes: activeNodes,
-    version: latestEventId,
-  };
 }
 
 /**

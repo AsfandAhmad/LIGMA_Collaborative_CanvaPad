@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, MousePointer2, Hand, StickyNote, Type, Square, Circle as CircleIcon,
   Diamond, ArrowUpRight, Minus, Pencil, Image as ImageIcon, Stamp, MessageCircle,
@@ -67,7 +67,21 @@ const tools = [
 
 function EditorContent() {
   const searchParams = useSearchParams();
-  const roomId = searchParams.get('roomId') || 'default-room';
+  const router = useRouter();
+  
+  // Auto-generate roomId if not provided
+  const urlRoomId = searchParams.get('roomId');
+  const [roomId, setRoomId] = useState<string>(() => {
+    if (urlRoomId) return urlRoomId;
+    // Generate unique roomId
+    const newRoomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Update URL without reload
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({}, '', `/editor?roomId=${newRoomId}`);
+    }
+    return newRoomId;
+  });
+  
   const { user } = useAuth();
   
   // Real-time canvas data
@@ -161,8 +175,9 @@ function EditorContent() {
         </div>
         <Button variant="ghost" size="icon-sm" onClick={() => toast({ title: "Replay history", description: "Scrub the timeline at the bottom of the canvas." })}><History className="h-4 w-4"/></Button>
         <Button variant="ghost" size="sm" onClick={() => {
-          navigator.clipboard?.writeText("https://ligma.app/s/sprint-44-kickoff").catch(()=>{});
-          toast({ title: "Share link copied" });
+          const shareUrl = `${window.location.origin}/editor?roomId=${roomId}`;
+          navigator.clipboard?.writeText(shareUrl).catch(()=>{});
+          toast({ title: "Share link copied", description: shareUrl });
         }}><Share2 className="h-3.5 w-3.5"/> Share</Button>
         <Button variant="paper" size="sm" onClick={() => toast({ title: "Export started", description: "Your PDF will download shortly." })}><Download className="h-3.5 w-3.5"/> Export</Button>
       </header>

@@ -5,20 +5,40 @@
 
 const express = require('express');
 const router = express.Router();
+const Y = require('yjs');
 const canvasService = require('../services/canvasService');
 const eventService = require('../services/eventService');
 const { authenticateToken } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
+const { ydocs } = require('../ws/yjsServer');
 
-// Get full canvas state
+// Get full canvas state — tries DB first, falls back to live Y.Doc
 router.get('/:roomId', authenticateToken, async (req, res) => {
   try {
     const { roomId } = req.params;
+    console.log(`[Canvas API] Getting canvas state for room: ${roomId}`);
+
     const state = await canvasService.getCanvasState(roomId);
+
+    // If DB returned empty/fallback, enrich with live Y.Doc nodes
+    if ((state.fallback || state.nodes.length === 0) && ydocs.has(roomId)) {
+      const ydoc = ydocs.get(roomId);
+      const nodesMap = ydoc.getMap('nodes');
+      const liveNodes = [];
+      nodesMap.forEach((value, key) => {
+        liveNodes.push({ id: key, ...value });
+      });
+      if (liveNodes.length > 0) {
+        console.log(`[Canvas API] Serving ${liveNodes.length} nodes from live Y.Doc`);
+        return res.json({ nodes: liveNodes, version: 0, source: 'ydoc' });
+      }
+    }
+
+    console.log(`[Canvas API] Returning ${state.nodes.length} nodes for room: ${roomId}`);
     res.json(state);
   } catch (error) {
-    console.error('Get canvas state error:', error);
-    res.status(500).json({ error: 'Failed to fetch canvas state' });
+    console.error('[Canvas API] Get canvas state error:', error);
+    res.status(500).json({ error: 'Failed to fetch canvas state', message: error.message });
   }
 });
 

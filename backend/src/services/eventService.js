@@ -15,17 +15,33 @@ const prisma = require('../db/prisma');
  * @returns {Promise<Object>} Created event
  */
 async function insertEvent(type, payload, userId, roomId) {
-  const event = await prisma.event.create({
-    data: {
+  try {
+    const event = await prisma.event.create({
+      data: {
+        type,
+        payload,
+        userId,
+        roomId,
+        timestamp: new Date(),
+      },
+    });
+
+    return event;
+  } catch (error) {
+    console.error('[EventService] Failed to insert event:', error.message);
+    console.warn('[EventService] Event not persisted - real-time sync will continue');
+    
+    // Return a mock event so the system continues working
+    return {
+      id: Date.now(),
       type,
       payload,
       userId,
       roomId,
       timestamp: new Date(),
-    },
-  });
-
-  return event;
+      persisted: false
+    };
+  }
 }
 
 /**

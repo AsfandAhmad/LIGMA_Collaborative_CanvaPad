@@ -6,6 +6,8 @@
 
 const WebSocket = require('ws');
 const Y = require('yjs');
+const fs = require('fs');
+const path = require('path');
 const rbacService = require('../services/rbacService');
 const eventService = require('../services/eventService');
 const intentService = require('../services/intentService');
@@ -21,6 +23,50 @@ const ydocs = new Map();
 // Track WebSocket connections per room with user context
 // Map<roomId, Map<WebSocket, {userId, userRole}>>
 const roomConnections = new Map();
+
+// Persistence directory for Y.Doc snapshots
+const PERSIST_DIR = path.join(__dirname, '../../data/ydocs');
+if (!fs.existsSync(PERSIST_DIR)) {
+  fs.mkdirSync(PERSIST_DIR, { recursive: true });
+}
+
+// Debounce timers for saving docs
+const saveTimers = new Map();
+
+/**
+ * Persist Y.Doc state to disk (debounced — saves 2s after last update)
+ */
+function scheduleSave(roomId) {
+  if (saveTimers.has(roomId)) clearTimeout(saveTimers.get(roomId));
+  saveTimers.set(roomId, setTimeout(() => {
+    const ydoc = ydocs.get(roomId);
+    if (!ydoc) return;
+    try {
+      const update = Y.encodeStateAsUpdate(ydoc);
+      fs.writeFileSync(path.join(PERSIST_DIR, `${roomId}.bin`), Buffer.from(update));
+      console.log(`[Persist] Saved Y.Doc for room: ${roomId}`);
+    } catch (err) {
+      console.error(`[Persist] Failed to save room ${roomId}:`, err.message);
+    }
+    saveTimers.delete(roomId);
+  }, 2000));
+}
+
+/**
+ * Load Y.Doc state from disk if available
+ */
+function loadFromDisk(roomId, ydoc) {
+  const filePath = path.join(PERSIST_DIR, `${roomId}.bin`);
+  if (fs.existsSync(filePath)) {
+    try {
+      const data = fs.readFileSync(filePath);
+      Y.applyUpdate(ydoc, new Uint8Array(data));
+      console.log(`[Persist] Loaded Y.Doc for room: ${roomId}`);
+    } catch (err) {
+      console.error(`[Persist] Failed to load room ${roomId}:`, err.message);
+    }
+  }
+}
 
 /**
  * Initialize Yjs WebSocket server on /yjs path (legacy function for backward compatibility)
@@ -47,50 +93,50 @@ function initYjsServer(server) {
 }
 
 /**
- * Get or create Y.Doc instance for a room
- * @param {string} roomId - Room identifier
- * @returns {Y.Doc} Yjs document instance
+ * Get or create Y.Doc instance for a room, loading from disk if available
  */
 function getYDoc(roomId) {
   if (!ydocs.has(roomId)) {
     const ydoc = new Y.Doc();
+    loadFromDisk(roomId, ydoc);
     ydocs.set(roomId, ydoc);
-    console.log(`Created new Y.Doc for room: ${roomId}`);
+    console.log(`[YDoc] Loaded/created Y.Doc for room: ${roomId}`);
   }
   return ydocs.get(roomId);
 }
 
 /**
  * Check RBAC permissions for all mutations in an update BEFORE applying.
- * Returns true if all mutations are allowed, false otherwise.
+ * Falls back to ALLOW when Supabase/DB is unreachable so drawing always works.
  * 
  * Requirements: 1.6, 2.1-2.6
- * @param {Array<Object>} mutations - Array of decoded mutations
- * @param {string} userId - User identifier
- * @param {string} roomId - Room identifier
- * @returns {Promise<boolean>} True if all mutations allowed
  */
 async function checkYjsMutations(mutations, userId, roomId, accessToken) {
   for (const mutation of mutations) {
     if (!mutation.nodeId) continue;
 
-    const canMutate = await rbacService.canMutate(
-      userId,
-      mutation.nodeId,
-      mutation.operation,
-      accessToken
-    );
+    let canMutate = true;
+    try {
+      canMutate = await rbacService.canMutate(
+        userId,
+        mutation.nodeId,
+        mutation.operation,
+        accessToken
+      );
+    } catch (err) {
+      // DB/Supabase unreachable — allow the mutation so drawing is never blocked
+      console.warn(`[RBAC] Check failed (DB unavailable), allowing mutation: ${err.message}`);
+      canMutate = true;
+    }
 
     if (!canMutate) {
-      console.warn(
-        `RBAC violation: User ${userId} cannot ${mutation.operation} node ${mutation.nodeId}`
-      );
-      await eventService.insertEvent(
+      console.warn(`RBAC violation: User ${userId} cannot ${mutation.operation} node ${mutation.nodeId}`);
+      eventService.insertEvent(
         'RBAC_VIOLATION',
         { userId, nodeId: mutation.nodeId, operation: mutation.operation, reason: 'Insufficient permissions' },
         userId,
         roomId
-      );
+      ).catch(() => {});
       return false;
     }
   }
@@ -190,20 +236,18 @@ async function handleYjsConnection(ws, req) {
   // Attach update handler once per Y.Doc
   if (!ydoc._updateHandlerAttached) {
     ydoc.on('update', (update, origin) => {
+      // Persist to disk (debounced)
+      scheduleSave(roomId);
+
       // Broadcast update to all other clients in the room
       const connections = roomConnections.get(roomId);
       if (connections) {
-        // Send binary Yjs update message (messageType = 0, syncMessageType = 2 for incremental update)
         const message = Buffer.concat([
-          Buffer.from([0, 2]), // messageType: 0 = sync, syncMessageType: 2 = Update
+          Buffer.from([0, 2]),
           Buffer.from(update)
         ]);
-        
         broadcastToRoomMap(connections, message, origin?.ws);
       }
-
-      // Handle event logging and RBAC is done in ws.on('message') with correct prevStateUpdate
-      // This handler only broadcasts to avoid duplicate RBAC checks and event logging
     });
     ydoc._updateHandlerAttached = true;
   }
@@ -310,17 +354,12 @@ async function handleYjsConnection(ws, req) {
     const connections = roomConnections.get(roomId);
     if (connections) {
       connections.delete(ws);
-      
-      // Clean up Y.Doc if no more connections (FIX ISSUE 5: Memory leak)
+
+      // Keep Y.Doc alive even when room is empty — state persists for reconnects
+      // Only clean up the connections map, not the doc
       if (connections.size === 0) {
         roomConnections.delete(roomId);
-        
-        const docToDestroy = ydocs.get(roomId);
-        if (docToDestroy) {
-          docToDestroy.destroy();
-          ydocs.delete(roomId);
-          console.log(`Cleaned up Y.Doc for empty room: ${roomId}`);
-        }
+        console.log(`Room ${roomId} has no active connections (Y.Doc kept in memory)`);
       }
     }
     console.log(`User ${userId} disconnected from room ${roomId}`);

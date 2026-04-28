@@ -1,81 +1,69 @@
-# LIGMA Backend
+# Backend
 
-Express + WebSocket server with event sourcing, RBAC, and Groq AI.
+Express + WebSocket server with event sourcing, RBAC, disk persistence, and Groq AI.
 
 ## Setup
 
 ```bash
 npm install
-npx prisma migrate dev --schema=src/db/schema.prisma --name init
-npm start
+npm run dev   # → http://localhost:4000
 ```
 
-Requires `backend/.env` — see root README for variables.
+Once DB is connected (see root `SUPABASE_SETUP.md`):
+```bash
+npm run prisma:migrate
+```
 
 ## Structure
 
 ```
 src/
-  app.js          Express app + routes
-  index.js        HTTP server + WebSocket upgrade router
+  index.js          HTTP server + WebSocket upgrade router (/ws, /yjs)
+  app.js            Express app + routes
   routes/
-    auth.js       POST /api/auth/register|login
-    canvas.js     GET|POST /api/canvas/:roomId
-    nodes.js      PATCH|DELETE /api/nodes/:nodeId
-    tasks.js      GET|PATCH /api/tasks
-    rooms.js      GET|POST /api/rooms
+    auth.js         POST /api/auth/register|login
+    canvas.js       GET|POST /api/canvas/:roomId
+    nodes.js        PATCH|DELETE /api/nodes/:nodeId
+    tasks.js        GET|PATCH /api/tasks
+    rooms.js        GET|POST /api/rooms
   ws/
-    wsServer.js   /ws  — presence, cursors, events (JSON)
-    yjsServer.js  /yjs — Yjs CRDT sync (binary)
-    wsHandler.js  NODE_CREATE|UPDATE|DELETE|MOVE handlers
-    presence.js   In-memory cursor map
+    yjsServer.js    /yjs — Yjs CRDT sync (binary) + disk persistence
+    wsServer.js     /ws  — presence, cursors, events (JSON)
   services/
-    canvasService.js   Replay events → canvas state
-    eventService.js    Append-only event log
-    intentService.js   Groq AI classification (debounced)
-    rbacService.js     Node ACL checks
-  middleware/
-    auth.js       JWT verify → req.user
-    rbac.js       requireRole() / checkNodePermission()
+    canvasService.js    Replay events → canvas state (DB fallback to Y.Doc)
+    eventService.js     Append-only event log (graceful DB failure)
+    intentService.js    Groq AI classification (debounced 1.5s)
+    rbacService.js      Node ACL checks (permissive when DB unavailable)
   db/
-    schema.prisma  User · Room · Event · NodeAcl · Task
-    prisma.js      PrismaClient singleton
+    schema.prisma   User · Room · Event · NodeAcl · Task
+    prisma.js       PrismaClient singleton
   utils/
-    crdt.js        decodeYjsUpdate, safeApplyUpdate
-    errors.js      AppError, AuthenticationError, etc.
-    validation.js  isValidWSMessage, isValidYjsMessage
-    wsUtils.js     parseWsQuery, broadcastToRoom*, safeClose
+    crdt.js         decodeYjsUpdate helpers
+    wsUtils.js      parseWsQuery, broadcastToRoom, safeClose
 ```
 
-## Event Types
+## Persistence
 
-All mutations are stored as immutable events (never UPDATE/DELETE):
+Canvas state is saved in two ways:
 
-`NODE_CREATED` · `NODE_UPDATED` · `NODE_DELETED` · `NODE_MOVED` · `LOCK_NODE` · `RESET` · `TASK_CREATED` · `CRDT_NODE_*` · `RBAC_VIOLATION`
+1. **Disk** — Y.Doc binary snapshots in `data/ydocs/<roomId>.bin`, written 2s after each change. Survives backend restarts.
+2. **Database** — Event log in Postgres (requires Supabase connection). Enables full audit history and AI export.
 
-## AI Intent Classification
-
-When a node's text changes, `intentService` debounces 1.5 s then calls Groq (Llama 3.3 70B). If classified as `action_item` with >70% confidence, a `Task` record is created automatically.
-
-If `GROQ_API_KEY` is missing or invalid, classification returns `reference` silently — the app keeps working.
-
-## Tests
-
-```bash
-npm test                    # Jest — all __tests__ files
-node src/ws/__tests__/yjsServer.test.js    # JWT auth scenarios
-node src/ws/__tests__/wsServer.cursor.test.js  # cursor integration
-```
-
-Tests mock `groq-sdk` and `@prisma/client` via `jest.setup.js` — no real DB or API key needed.
+Without DB, real-time sync and disk persistence still work fully.
 
 ## Scripts
 
 | Script | What it does |
 |---|---|
-| `npm start` | `node src/index.js` |
-| `npm run dev` | `nodemon src/index.js` |
+| `npm run dev` | nodemon dev server |
+| `npm start` | production start |
 | `npm test` | Jest test suite |
 | `npm run prisma:generate` | Regenerate Prisma client |
-| `npm run prisma:migrate` | Run migrations |
-| `npm run prisma:studio` | Open Prisma Studio at :5555 |
+| `npm run prisma:migrate` | Run DB migrations |
+| `npm run prisma:studio` | Prisma Studio at :5555 |
+
+## Event Types
+
+All mutations are stored as immutable events (never UPDATE/DELETE on the Event table):
+
+`NODE_CREATED` · `NODE_UPDATED` · `NODE_DELETED` · `NODE_MOVED` · `LOCK_NODE` · `RESET` · `CRDT_NODE_*` · `RBAC_VIOLATION`

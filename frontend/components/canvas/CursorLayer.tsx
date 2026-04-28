@@ -12,9 +12,10 @@ import type { Viewport } from "@/lib/canvas/Viewport";
 interface CursorLayerProps {
   cursors: UserCursor[];
   viewport: Viewport | null;
+  viewportTick?: number;
 }
 
-export function CursorLayer({ cursors, viewport }: CursorLayerProps) {
+export function CursorLayer({ cursors, viewport, viewportTick: _tick }: CursorLayerProps) {
   if (!viewport) return null;
 
   return (
