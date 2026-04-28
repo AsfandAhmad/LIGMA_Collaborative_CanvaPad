@@ -1,5 +1,5 @@
 // Handle incoming WebSocket messages
-// Message format: { type, payload, nodeId, roomId, token }
+// Message format: { type, payload, nodeId }
 //
 // switch(message.type):
 //   case "NODE_UPDATE":
@@ -14,10 +14,12 @@
 //
 // CRITICAL: RBAC check happens HERE before every mutation
 
-const jwt = require('jsonwebtoken');
+const WebSocket = require('ws');
 const eventService = require('../services/eventService');
 const rbacService = require('../services/rbacService');
 const intentService = require('../services/intentService');
+const { isValidWSMessage, isValidNodePayload } = require('../utils/validation');
+const { ValidationError } = require('../utils/errors');
 
 /**
  * Handle WebSocket message
@@ -27,15 +29,21 @@ const intentService = require('../services/intentService');
  */
 async function handleMessage(ws, message, broadcast) {
   try {
-    const { type, payload, nodeId, roomId, token } = message;
-
-    // Verify JWT token
-    let user;
-    try {
-      user = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (error) {
-      return sendError(ws, 'Invalid token');
+    // Validate message structure
+    const validation = isValidWSMessage(message);
+    if (!validation.valid) {
+      return sendError(ws, `Invalid message: ${validation.errors.join(', ')}`);
     }
+
+    const { type, payload, nodeId } = message;
+
+    // Use authenticated user info and roomId from WebSocket (prevents room ID spoofing)
+    const user = {
+      id: ws.userId,
+      role: ws.userRole,
+      name: ws.userName
+    };
+    const roomId = ws.roomId; // Use validated roomId from connection, not from message
 
     // Handle different message types
     switch (type) {
@@ -55,15 +63,6 @@ async function handleMessage(ws, message, broadcast) {
         await handleNodeMove(ws, user, nodeId, payload, roomId, broadcast);
         break;
 
-      case 'CURSOR_MOVE':
-        // Broadcast cursor position without persisting
-        broadcast(roomId, {
-          type: 'CURSOR_MOVE',
-          userId: user.id,
-          payload,
-        }, ws);
-        break;
-
       default:
         sendError(ws, `Unknown message type: ${type}`);
     }
@@ -78,6 +77,12 @@ async function handleMessage(ws, message, broadcast) {
  */
 async function handleNodeCreate(ws, user, payload, roomId, broadcast) {
   try {
+    // Validate payload structure
+    const validation = isValidNodePayload(payload, 'create');
+    if (!validation.valid) {
+      return sendError(ws, `Invalid payload: ${validation.errors.join(', ')}`);
+    }
+
     // Viewers cannot create nodes
     if (user.role === 'Viewer') {
       return sendError(ws, 'Viewers cannot create nodes');
@@ -91,7 +96,7 @@ async function handleNodeCreate(ws, user, payload, roomId, broadcast) {
       roomId
     );
 
-    // Broadcast to all clients in room
+    // Broadcast to all clients in room (including sender for operation confirmation)
     broadcast(roomId, {
       type: 'NODE_CREATED',
       event,
@@ -114,6 +119,12 @@ async function handleNodeCreate(ws, user, payload, roomId, broadcast) {
  */
 async function handleNodeUpdate(ws, user, nodeId, payload, roomId, broadcast) {
   try {
+    // Validate payload structure
+    const validation = isValidNodePayload(payload, 'update');
+    if (!validation.valid) {
+      return sendError(ws, `Invalid payload: ${validation.errors.join(', ')}`);
+    }
+
     // RBAC check - can user mutate this node?
     const canMutate = await rbacService.canMutate(user.id, nodeId, 'update');
     
@@ -183,6 +194,12 @@ async function handleNodeDelete(ws, user, nodeId, roomId, broadcast) {
  */
 async function handleNodeMove(ws, user, nodeId, payload, roomId, broadcast) {
   try {
+    // Validate payload structure
+    const validation = isValidNodePayload(payload, 'move');
+    if (!validation.valid) {
+      return sendError(ws, `Invalid payload: ${validation.errors.join(', ')}`);
+    }
+
     // RBAC check
     const canMutate = await rbacService.canMutate(user.id, nodeId, 'update');
     
@@ -214,6 +231,8 @@ async function handleNodeMove(ws, user, nodeId, payload, roomId, broadcast) {
  * Send error message to client
  */
 function sendError(ws, message) {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  
   ws.send(JSON.stringify({
     type: 'ERROR',
     error: message,

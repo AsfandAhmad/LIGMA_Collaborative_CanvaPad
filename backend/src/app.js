@@ -10,6 +10,7 @@ const authRoutes = require('./routes/auth');
 const canvasRoutes = require('./routes/canvas');
 const nodesRoutes = require('./routes/nodes');
 const tasksRoutes = require('./routes/tasks');
+const { AppError } = require('./utils/errors');
 
 const app = express();
 
@@ -35,9 +36,21 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal server error',
+  // Handle structured AppError instances
+  if (err instanceof AppError) {
+    return res.status(err.statusCode).json({
+      error: err.message,
+      timestamp: err.timestamp,
+      ...(err.errors && { errors: err.errors }), // Include validation errors if present
+      ...(err.context && { context: err.context }), // Include RBAC context if present
+    });
+  }
+
+  // Handle unexpected errors
+  console.error('Unexpected error:', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    timestamp: new Date().toISOString(),
   });
 });
 
