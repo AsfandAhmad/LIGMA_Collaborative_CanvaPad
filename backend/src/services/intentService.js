@@ -113,11 +113,25 @@ Text to classify: "${text}"`;
 
     // If classified as action_item, create a task
     if (result.intent === 'action_item' && result.confidence > 0.7) {
+      // Insert event for audit log
       await eventService.insertEvent('TASK_CREATED', {
         nodeId,
         text,
         status: 'todo',
       }, userId, roomId);
+
+      // Also create a real Task record so GET /api/tasks/:roomId returns it
+      try {
+        const prisma = require('../db/prisma');
+        const existing = await prisma.task.findFirst({ where: { nodeId } });
+        if (!existing) {
+          await prisma.task.create({
+            data: { text, authorId: userId, nodeId, roomId, status: 'todo' },
+          });
+        }
+      } catch (dbErr) {
+        console.error('Failed to create Task record:', dbErr.message);
+      }
     }
 
     return result;

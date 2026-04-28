@@ -33,8 +33,8 @@ router.patch('/:nodeId/lock', authenticateToken, requireRole('Lead'), async (req
     const { nodeId } = req.params;
     const { locked, roomId } = req.body;
 
-    if (typeof locked !== 'boolean' || !roomId) {
-      return res.status(400).json({ error: 'locked (boolean) and roomId required' });
+    if (typeof locked !== 'boolean' || !roomId || typeof roomId !== 'string') {
+      return res.status(400).json({ error: 'locked (boolean) and roomId (string) required' });
     }
 
     const event = await eventService.insertEvent(

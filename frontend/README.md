@@ -1,36 +1,104 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# LIGMA Frontend
 
-## Getting Started
+Next.js 16 (App Router) · TypeScript · Tailwind · Yjs · Shadcn UI
 
-First, run the development server:
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev   # → http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Requires `frontend/.env.local` — see root README for variables.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+app/                    Pages (App Router)
+  layout.tsx            Root layout + providers
+  page.tsx              Landing
+  auth/                 Login / register
+  dashboard/            Home dashboard
+  editor/               Collaborative canvas editor
+  lobby/                Session list
+  projects|recent|...   Other views
 
-## Learn More
+components/
+  ligma/                App-specific components
+    AppSidebar.tsx      Navigation sidebar
+    WorkspaceTopbar.tsx Top bar with search + notifications
+    SessionGrid.tsx     Session cards grid
+  ui/                   Shadcn/Radix primitives (50+ components)
+  NavLink.tsx           Next.js Link with active-state support
+  providers.tsx         QueryClient + AuthProvider + Toaster
 
-To learn more about Next.js, take a look at the following resources:
+lib/
+  api.ts                REST API client (auth, canvas, tasks, rooms)
+  auth-context.tsx      useAuth() — JWT storage + login/logout
+  demoStore.ts          Local demo state (sessions, notifications)
+  yjs/
+    yjsProvider.ts      WebSocket ↔ Y.Doc sync (binary protocol)
+    syncManager.ts      Y.Map CRUD wrapper for canvas nodes
+    awareness.ts        Cursor presence tracker
+  hooks/
+    useCanvas.ts        Canvas nodes via Yjs
+    usePresence.ts      Live cursors via /ws WebSocket
+    useTasks.ts         Tasks via REST API
+    use-toast.ts        Toast notification system
+    use-mobile.tsx      Responsive breakpoint hook
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Key Patterns
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**Auth** — `useAuth()` from `lib/auth-context.tsx`. JWT stored in `localStorage`. All API calls inject `Authorization: Bearer <token>` automatically via `fetchWithAuth`.
 
-## Deploy on Vercel
+**Real-time canvas** — `useCanvas({ roomId })` connects to `/yjs` WebSocket, syncs a `Y.Map<nodes>` via Yjs CRDT. Changes propagate to all clients conflict-free.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+**Cursors** — `usePresence({ roomId })` connects to `/ws` WebSocket, sends `CURSOR_MOVE` messages and receives broadcasts from other users.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Tasks** — `useTasks({ roomId })` fetches from `GET /api/tasks/:roomId`. AI-classified `action_item` nodes auto-create tasks on the backend.
+
+**Demo mode** — `demoStore.ts` provides localStorage-backed state for pages that don't yet call the backend (dashboard, lobby, etc.). The editor uses real backend data.
+
+## Design System
+
+Blueprint Retro Zine theme — custom Tailwind tokens:
+
+- Colors: `coral`, `indigo`, `success`, `warning`, `primary`
+- Sticky note colors: `sticky-yellow`, `sticky-pink`, `sticky-mint`, `sticky-sky`
+- Intent colors: `intent-action`, `intent-decision`, `intent-question`, `intent-reference`
+- Fonts: `font-hand` (handwritten), `font-mono` (monospace labels)
+- Utilities: `zine-label`, `shadow-sticky`, `bg-blueprint-grid`
+
+## Recent Fixes
+
+- ✅ All TypeScript build errors resolved
+- ✅ Suspense boundaries added for useSearchParams
+- ✅ Real-time hooks fully implemented (useCanvas, usePresence, useTasks)
+- ✅ Yjs CRDT sync with WebSocket ready
+- ✅ Complete API client with auth, canvas, tasks, rooms endpoints
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| Module not found errors | Run `npm install` |
+| EBUSY: resource busy | Stop dev server (`Ctrl+C`), delete `.next` folder, restart |
+| Hydration errors | Check for client-only code in server components |
+| Port 3000 in use | Use `npm run dev -- -p 3001` |
+| Build fails | Clear cache: `rm -rf .next` then `npm run dev` |
+
+## Scripts
+
+| Script | What it does |
+|---|---|
+| `npm run dev` | Dev server at :3000 |
+| `npm run build` | Production build |
+| `npm run lint` | ESLint |
+
+## Notes
+
+- Next.js 16 has breaking changes from earlier versions — check official docs for migration
+- All interactive components use "use client" directive
+- Fonts loaded via Next.js font optimization
+- Ready for deployment to Vercel

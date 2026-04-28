@@ -168,4 +168,22 @@ if (require.main === module) {
   testAuthentication();
 }
 
+// Jest wrapper — runs the same logic as a proper test suite
+describe('Yjs JWT Authentication', () => {
+  test('all authentication scenarios pass', (done) => {
+    // Capture process.exit to prevent Jest from dying
+    const originalExit = process.exit.bind(process);
+    process.exit = (code) => {
+      process.exit = originalExit;
+      if (code === 0) {
+        done();
+      } else {
+        done(new Error('Authentication tests failed'));
+      }
+    };
+
+    testAuthentication();
+  });
+});
+
 module.exports = { testAuthentication };

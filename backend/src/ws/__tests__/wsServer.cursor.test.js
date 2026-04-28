@@ -4,6 +4,18 @@
  * Requirements: 3.2, 3.3, 3.6
  */
 
+// Mock dependencies before requiring wsServer
+jest.mock('../../services/eventService', () => ({
+  insertEvent: jest.fn().mockResolvedValue({ id: 1 }),
+  getEvents: jest.fn().mockResolvedValue([]),
+}));
+jest.mock('../../services/rbacService', () => ({
+  canMutate: jest.fn().mockResolvedValue(true),
+}));
+jest.mock('../../services/intentService', () => ({
+  classifyNodeIntent: jest.fn().mockResolvedValue({ intent: 'reference', confidence: 0.9 }),
+}));
+
 const WebSocket = require('ws');
 const http = require('http');
 const jwt = require('jsonwebtoken');
@@ -187,16 +199,18 @@ function testCursorMoveIntegration() {
 
       if (passedTests >= totalTests - 1) { // Allow 1 test to be skipped
         console.log('✅ Integration tests passed! wsServer CURSOR_MOVE handling is working correctly.');
-        process.exit(0);
+        if (require.main === module) process.exit(0);
       } else {
         console.log('❌ Some tests failed. Please review the implementation.');
-        process.exit(1);
+        if (require.main === module) process.exit(1);
+        else throw new Error(`Only ${passedTests}/${totalTests} cursor tests passed`);
       }
 
     } catch (error) {
       console.error('Test error:', error);
       server.close();
-      process.exit(1);
+      if (require.main === module) process.exit(1);
+      else throw error;
     }
   });
 }
@@ -205,5 +219,14 @@ function testCursorMoveIntegration() {
 if (require.main === module) {
   testCursorMoveIntegration();
 }
+
+// Jest wrapper
+describe('wsServer CURSOR_MOVE Integration', () => {
+  test('cursor move integration tests pass', (done) => {
+    testCursorMoveIntegration();
+    // testCursorMoveIntegration uses server.listen callback — give it time
+    setTimeout(done, 8000);
+  }, 10000);
+});
 
 module.exports = { testCursorMoveIntegration };

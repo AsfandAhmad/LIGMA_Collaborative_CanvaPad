@@ -10,6 +10,7 @@ const authRoutes = require('./routes/auth');
 const canvasRoutes = require('./routes/canvas');
 const nodesRoutes = require('./routes/nodes');
 const tasksRoutes = require('./routes/tasks');
+const roomsRoutes = require('./routes/rooms');
 const { AppError } = require('./utils/errors');
 
 const app = express();
@@ -28,6 +29,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/canvas', canvasRoutes);
 app.use('/api/nodes', nodesRoutes);
 app.use('/api/tasks', tasksRoutes);
+app.use('/api/rooms', roomsRoutes);
 
 // 404 handler
 app.use((req, res) => {

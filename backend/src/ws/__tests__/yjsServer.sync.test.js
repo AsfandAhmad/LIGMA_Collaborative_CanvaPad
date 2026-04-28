@@ -6,6 +6,19 @@
 // 4. Broadcasting to other clients
 // 5. Y.Doc cleanup on disconnect
 
+// Mock dependencies before requiring yjsServer
+jest.mock('../../services/eventService', () => ({
+  insertEvent: jest.fn().mockResolvedValue({ id: 1 }),
+  getEvents: jest.fn().mockResolvedValue([]),
+}));
+jest.mock('../../services/rbacService', () => ({
+  canMutate: jest.fn().mockResolvedValue(true),
+  getNodeAcl: jest.fn().mockResolvedValue(null),
+}));
+jest.mock('../../services/intentService', () => ({
+  classifyNodeIntent: jest.fn().mockResolvedValue({ intent: 'reference', confidence: 0.9 }),
+}));
+
 const WebSocket = require('ws');
 const http = require('http');
 const Y = require('yjs');
@@ -208,7 +221,7 @@ async function runTests() {
   try {
     console.log('\nTest 4: Y.Doc cleanup on last client disconnect');
     
-    const { ydocs } = require('./yjsServer');
+    const { ydocs } = require('../yjsServer');
     
     const token = createTestToken('user4');
     const ws4 = new WebSocket(`ws://localhost:${port}/yjs?token=${token}&roomId=cleanup_room`);
@@ -344,8 +357,10 @@ async function runTests() {
   if (testsFailed === 0) {
     console.log('✅ All tests passed! Yjs sync protocol is working correctly.\n');
   } else {
-    console.log(`❌ ${testsFailed} test(s) failed.\n`);
-    process.exit(1);
+    const msg = `${testsFailed} test(s) failed.`;
+    console.log(`❌ ${msg}\n`);
+    if (require.main === module) process.exit(1);
+    else throw new Error(msg);
   }
 }
 
@@ -353,4 +368,11 @@ async function runTests() {
 runTests().catch((error) => {
   console.error('Test suite error:', error);
   process.exit(1);
+});
+
+// Jest wrapper
+describe('Yjs Sync Protocol', () => {
+  test('sync protocol tests pass', async () => {
+    await runTests();
+  }, 15000);
 });
