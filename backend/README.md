@@ -27,11 +27,26 @@ This implementation follows the WebSocket Yjs Integration specification, which d
 - Real-time cursor presence tracking
 - Intent classification for automatic task detection
 
+### Recent Security Fixes
+
+**Critical:**
+- **RBAC Before Mutation**: Fixed vulnerability where Yjs updates were applied before permission checks. Now validates ALL mutations atomically before applying to document.
+
+**Moderate:**
+- **Single Upgrade Router**: Implemented centralized WebSocket routing to prevent path collisions between `/ws` and `/yjs`.
+- **Variable Shadowing**: Fixed confusing variable names in cleanup handlers.
+
+**Minor:**
+- **WebSocket State Guard**: Added readyState check in `sendError()` to prevent crashes.
+- **Unique Color Assignment**: Implemented proper color tracking to prevent duplicate cursor colors.
+- **Buffer Deprecation**: Updated to `buffer.subarray()` from deprecated `buffer.slice()`.
+
 ### Security
 - JWT authentication on all connections
 - Room ID validation prevents spoofing
-- RBAC checks before all mutations
+- **RBAC checks BEFORE all mutations** (critical fix)
 - Error handlers prevent process crashes
+- Single upgrade router prevents path conflicts
 
 ### Performance
 - Memory leak fixed (Y.Doc cleanup on disconnect)
