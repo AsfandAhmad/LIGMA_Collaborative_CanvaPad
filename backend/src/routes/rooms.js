@@ -9,18 +9,40 @@ const { authenticateToken } = require('../middleware/auth');
 const { getSupabaseClientForToken, getSupabaseServiceClient } = require('../utils/supabase');
 const { getPrimaryWorkspace } = require('../services/workspaceService');
 
-// List rooms (rooms the user created)
+// List rooms (rooms the user has access to via workspace membership)
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    // Use service client to bypass RLS
     const serviceClient = getSupabaseServiceClient();
     const client = serviceClient || getSupabaseClientForToken(req.accessToken);
     if (!client) return res.json({ rooms: [] });
 
-    // Filter by user_id since RLS is disabled
+    const userId = req.user.id;
+
+    // Get all workspace IDs this user is a member of
+    const { data: memberships, error: memberError } = await client
+      .from('workspace_members')
+      .select('workspace_id')
+      .eq('user_id', userId);
+
+    if (memberError) {
+      console.warn('Workspace membership query error:', memberError.message);
+      return res.json({ rooms: [] });
+    }
+
+    const workspaceIds = (memberships || [])
+      .map(m => m.workspace_id)
+      .filter(Boolean);
+
+    // No workspace memberships → no rooms
+    if (workspaceIds.length === 0) {
+      return res.json({ rooms: [] });
+    }
+
+    // Return only rooms that belong to this user's workspaces
     const { data, error } = await client
       .from('rooms')
       .select('*')
+      .in('workspace_id', workspaceIds)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -52,21 +74,15 @@ router.post('/', authenticateToken, async (req, res) => {
       targetWorkspaceId = workspace?.id;
     }
 
-    // TEMPORARY: Create room without workspace if none exists
+    // If still no workspace, auto-create one for this user so the room is always owned
     if (!targetWorkspaceId) {
-      console.warn('No workspace found, creating room without workspace_id');
-      const { data, error } = await client
-        .from('rooms')
-        .insert({ name, status: 'active', workspace_id: null })
-        .select('*')
-        .maybeSingle();
+      const { ensureWorkspaceForUser } = require('../services/workspaceService');
+      const workspace = await ensureWorkspaceForUser(req.user, req.accessToken);
+      targetWorkspaceId = workspace?.id;
+    }
 
-      if (error || !data) {
-        console.error('Create room error:', error);
-        return res.status(500).json({ error: 'Failed to create room' });
-      }
-
-      return res.status(201).json({ room: data });
+    if (!targetWorkspaceId) {
+      return res.status(400).json({ error: 'Could not resolve a workspace for this user' });
     }
 
     const { data, error } = await client
