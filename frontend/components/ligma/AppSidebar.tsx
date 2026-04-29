@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Clock, Share2, LayoutTemplate, FolderKanban, Trash2, Settings, Plus } from "lucide-react";
+import { Clock, Share2, LayoutTemplate, FolderKanban, Trash2, Settings, Plus, Menu, X } from "lucide-react";
 import { Logo } from "./Logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,14 +18,7 @@ const items = [
   { icon: Trash2, label: "Trash", to: "/trash" },
 ];
 
-const folders = [
-  { name: "Sprint 44", color: "bg-coral" },
-  { name: "Q2 Planning", color: "bg-warning" },
-  { name: "Design Reviews", color: "bg-success" },
-  { name: "Onboarding", color: "bg-indigo" },
-];
-
-export function AppSidebar() {
+function SidebarContent({ onNav }: { onNav?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user: authUser, isLoading: authLoading } = useAuth();
@@ -34,18 +27,23 @@ export function AppSidebar() {
   useEffect(() => { setMounted(true); }, []);
 
   const user = mounted ? authUser : null;
-  const initials = user?.name ? user.name.split(" ").slice(0, 2).map((p: string) => p[0]).join("").toUpperCase() : "?";
+  const initials = user?.name
+    ? user.name.split(" ").slice(0, 2).map((p: string) => p[0]).join("").toUpperCase()
+    : "?";
   const displayName = user?.name || "Guest";
   const displayRole = user?.role || "viewer";
 
   return (
-    <aside className="w-64 shrink-0 border-r-2 border-foreground/10 bg-sidebar h-screen sticky top-0 flex flex-col">
+    <div className="flex flex-col h-full">
       <div className="px-5 py-4 border-b border-sidebar-border">
         <Logo />
       </div>
 
       <div className="px-3 py-4">
-        <button onClick={() => router.push("/settings")} className="w-full flex items-center gap-3 rounded-lg p-2 hover:bg-sidebar-accent transition-colors text-left">
+        <button
+          onClick={() => { router.push("/settings"); onNav?.(); }}
+          className="w-full flex items-center gap-3 rounded-lg p-2 hover:bg-sidebar-accent transition-colors text-left"
+        >
           <div className="h-9 w-9 rounded-full overflow-hidden bg-gradient-blueprint flex items-center justify-center font-bold text-primary-foreground text-sm shrink-0">
             {(authUser as any)?.avatar_url && mounted && !authLoading ? (
               <img src={(authUser as any).avatar_url} alt={displayName} className="h-full w-full object-cover" />
@@ -65,11 +63,18 @@ export function AppSidebar() {
           {items.map(it => {
             const active = pathname === it.to;
             return (
-              <Link key={it.label} href={it.to} className={cn(
-                "flex items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors",
-                active ? "bg-foreground text-background font-medium" : "text-sidebar-foreground hover:bg-sidebar-accent"
-              )}>
-                <it.icon className="h-4 w-4" />
+              <Link
+                key={it.label}
+                href={it.to}
+                onClick={onNav}
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors",
+                  active
+                    ? "bg-foreground text-background font-medium"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent"
+                )}
+              >
+                <it.icon className="h-4 w-4 shrink-0" />
                 {it.label}
               </Link>
             );
@@ -79,24 +84,72 @@ export function AppSidebar() {
         <div className="mt-6">
           <div className="zine-label px-2 mb-2">workspace folders</div>
           <div className="space-y-0.5">
-            {folders.map(f => (
-              <Link key={f.name} href={`/projects?folder=${encodeURIComponent(f.name)}`} className="w-full flex items-center gap-3 rounded-md px-2.5 py-1.5 text-sm hover:bg-sidebar-accent transition-colors">
-                <span className={cn("h-2.5 w-2.5 rounded-sm", f.color)} />
-                <span className="truncate">{f.name}</span>
-              </Link>
-            ))}
-            <button onClick={() => toast({ title: "New folder", description: "Folders are coming soon to this demo." })} className="w-full flex items-center gap-3 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent transition-colors">
-              <Plus className="h-3.5 w-3.5" /> New folder
+            <button
+              onClick={() => { toast({ title: "New folder", description: "Folders are coming soon." }); onNav?.(); }}
+              className="w-full flex items-center gap-3 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5 shrink-0" /> New folder
             </button>
           </div>
         </div>
       </nav>
 
       <div className="p-3 border-t border-sidebar-border space-y-2">
-        <Link href="/settings" className={cn("flex items-center gap-3 rounded-md px-2.5 py-2 text-sm hover:bg-sidebar-accent", pathname === "/settings" ? "bg-foreground text-background font-medium" : "text-muted-foreground")}>
-          <Settings className="h-4 w-4"/> Settings
+        <Link
+          href="/settings"
+          onClick={onNav}
+          className={cn(
+            "flex items-center gap-3 rounded-md px-2.5 py-2 text-sm hover:bg-sidebar-accent",
+            pathname === "/settings" ? "bg-foreground text-background font-medium" : "text-muted-foreground"
+          )}
+        >
+          <Settings className="h-4 w-4" /> Settings
         </Link>
       </div>
-    </aside>
+    </div>
+  );
+}
+
+export function AppSidebar() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Close on route change
+  const pathname = usePathname();
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
+
+  return (
+    <>
+      {/* Mobile hamburger trigger — shown only on small screens */}
+      <button
+        className="lg:hidden fixed top-3 left-3 z-50 h-10 w-10 flex items-center justify-center rounded-lg bg-background border-2 border-foreground/15 shadow-sm"
+        onClick={() => setMobileOpen(v => !v)}
+        aria-label="Toggle sidebar"
+      >
+        {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+      </button>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 bg-foreground/40 backdrop-blur-sm"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* Mobile drawer */}
+      <aside
+        className={cn(
+          "lg:hidden fixed top-0 left-0 z-40 h-full w-72 bg-sidebar border-r-2 border-foreground/10 transition-transform duration-300",
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        <SidebarContent onNav={() => setMobileOpen(false)} />
+      </aside>
+
+      {/* Desktop sidebar — always visible */}
+      <aside className="hidden lg:flex w-64 shrink-0 border-r-2 border-foreground/10 bg-sidebar h-screen sticky top-0 flex-col">
+        <SidebarContent />
+      </aside>
+    </>
   );
 }

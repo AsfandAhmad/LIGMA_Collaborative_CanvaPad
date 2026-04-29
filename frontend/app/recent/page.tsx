@@ -94,7 +94,7 @@ export default function Recent() {
       <main className="flex-1 min-w-0">
         <WorkspaceTopbar label="/recent" title="Welcome back" />
 
-        <div className="px-8 py-8 space-y-12">
+        <div className="px-4 md:px-8 py-6 md:py-8 space-y-8 md:space-y-12">
           {/* Sessions section */}
           <section>
             <div className="flex items-end justify-between mb-5">
@@ -146,7 +146,7 @@ export default function Recent() {
           </section>
 
           {/* Tasks + Pulse */}
-          <section className="grid lg:grid-cols-3 gap-6">
+          <section className="grid lg:grid-cols-3 gap-4 md:gap-6">
             <div className="lg:col-span-2 rounded-2xl border-2 border-foreground/15 bg-card p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>

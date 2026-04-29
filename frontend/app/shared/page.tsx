@@ -57,7 +57,7 @@ export default function Shared() {
       <AppSidebar />
       <main className="flex-1 min-w-0">
         <WorkspaceTopbar label="/shared with me" title="Shared with you" />
-        <div className="px-8 py-8 space-y-6">
+        <div className="px-4 md:px-8 py-6 md:py-8 space-y-6">
           <div>
             <div className="zine-label mb-1">§ collaborations</div>
             <h2 className="text-xl font-bold">Sessions teammates invited you to</h2>

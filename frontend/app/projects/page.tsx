@@ -14,10 +14,6 @@ const folderColors = ["bg-coral", "bg-warning", "bg-success", "bg-indigo"];
 
 const folders = [
   { name: "All projects", color: "bg-foreground" },
-  { name: "Sprint 44", color: "bg-coral" },
-  { name: "Q2 Planning", color: "bg-warning" },
-  { name: "Design Reviews", color: "bg-success" },
-  { name: "Onboarding", color: "bg-indigo" },
 ];
 
 function ProjectsContent() {
@@ -69,7 +65,7 @@ function ProjectsContent() {
       <AppSidebar />
       <main className="flex-1 min-w-0">
         <WorkspaceTopbar label="/projects" title="Projects" />
-        <div className="px-8 py-8 space-y-6">
+        <div className="px-4 md:px-8 py-6 md:py-8 space-y-6">
           <div className="flex gap-2 flex-wrap">
             {folders.map(f => {
               const active = folder === f.name;

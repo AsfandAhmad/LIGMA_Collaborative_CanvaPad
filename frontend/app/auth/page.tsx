@@ -108,17 +108,8 @@ export default function Auth() {
 
         {/* bottom branding */}
         <div className="absolute bottom-0 left-0 right-0 p-10">
-          <div className="inline-flex items-center gap-2 mb-5">
-            <span className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg bg-background text-foreground shadow-[2px_2px_0_hsl(var(--primary))]">
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                <path d="M4 4 L4 20 L12 20" /><path d="M9 12 L20 12" />
-                <circle cx="20" cy="12" r="1.6" fill="currentColor" />
-                <path d="M16 6 L20 6" />
-              </svg>
-              <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-coral" />
-            </span>
-            <span className="font-mono text-lg font-bold tracking-tight text-background">LIGMA</span>
-            <span className="font-hand text-sm text-background/50">/v0.9</span>
+          <div className="inline-flex items-center mb-5">
+            <img src="/fluxnote.png" alt="Fluxnote" className="h-9 w-auto max-w-[160px] object-contain brightness-0 invert" />
           </div>
           <h2 className="text-4xl font-bold leading-tight text-background">
             Brainstorm together.<br />
@@ -143,15 +134,8 @@ export default function Auth() {
 
         <div className="relative w-full max-w-[400px] space-y-6">
           {/* mobile logo */}
-          <div className="lg:hidden flex items-center gap-2 mb-2">
-            <span className="relative inline-flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background">
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                <path d="M4 4 L4 20 L12 20" /><path d="M9 12 L20 12" />
-                <circle cx="20" cy="12" r="1.6" fill="currentColor" />
-              </svg>
-              <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-coral" />
-            </span>
-            <span className="font-mono font-bold tracking-tight">LIGMA</span>
+          <div className="lg:hidden flex items-center mb-2">
+            <img src="/fluxnote.png" alt="Fluxnote" className="h-7 w-auto max-w-[120px] object-contain" />
           </div>
 
           {/* heading */}

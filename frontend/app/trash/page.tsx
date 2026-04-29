@@ -13,7 +13,7 @@ export default function Trash() {
       <AppSidebar />
       <main className="flex-1 min-w-0">
         <WorkspaceTopbar label="/trash" title="Trash" />
-        <div className="px-8 py-8 space-y-6">
+        <div className="px-4 md:px-8 py-6 md:py-8 space-y-6">
           <div className="flex items-end justify-between">
             <div>
               <div className="zine-label mb-1">§ deleted</div>

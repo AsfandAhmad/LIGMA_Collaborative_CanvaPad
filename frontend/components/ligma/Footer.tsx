@@ -10,27 +10,34 @@ const cols = [
 export function Footer() {
   return (
     <footer className="border-t-2 border-foreground bg-foreground text-background relative overflow-hidden">
-      <div className="container py-16 grid gap-10 md:grid-cols-6">
-        <div className="md:col-span-2 space-y-4">
+      <div className="container py-12 md:py-16 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8 md:gap-10">
+        {/* Brand — full width on mobile, 2 cols on lg */}
+        <div className="col-span-2 md:col-span-3 lg:col-span-2 space-y-4">
           <Logo className="text-background [&_span:first-child]:bg-background [&_span:first-child]:text-foreground" />
-          <p className="text-sm text-background/70 max-w-xs">Brainstorm together. Leave with action, not chaos. The collaborative canvas built for execution.</p>
-          <p className="font-hand text-2xl text-warning">made with restless ideas ✦</p>
+          <p className="text-sm text-background/70 max-w-xs">
+            Brainstorm together. Leave with action, not chaos. The collaborative canvas built for execution.
+          </p>
+          <p className="font-hand text-xl md:text-2xl text-warning">made with restless ideas ✦</p>
         </div>
+
+        {/* Link columns — 2-col grid on mobile, 4 cols on lg */}
         {cols.map(c => (
           <div key={c.title}>
             <h4 className="font-mono text-xs uppercase tracking-widest text-background/50 mb-3">{c.title}</h4>
             <ul className="space-y-2">
               {c.links.map(l => (
-                <li key={l}><a href="#" className="text-sm text-background/80 hover:text-warning transition-colors">{l}</a></li>
+                <li key={l}>
+                  <a href="#" className="text-sm text-background/80 hover:text-warning transition-colors">{l}</a>
+                </li>
               ))}
             </ul>
           </div>
         ))}
       </div>
       <div className="border-t border-background/10">
-        <div className="container py-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-background/50 font-mono uppercase tracking-wider">
-          <span>© 2026 LIGMA Labs · Issue 09</span>
-          <span>Let's Integrate Groups, Manage Anything</span>
+        <div className="container py-4 md:py-5 flex flex-col sm:flex-row items-center justify-between gap-2 md:gap-3 text-[10px] md:text-xs text-background/50 font-mono uppercase tracking-wider">
+          <span>© 2026 Fluxnote Labs · Issue 09</span>
+          <span className="text-center sm:text-right">Fluxnote — where ideas become action</span>
         </div>
       </div>
     </footer>

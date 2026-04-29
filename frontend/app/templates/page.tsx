@@ -5,7 +5,6 @@ import { AppSidebar } from "@/components/ligma/AppSidebar";
 import { WorkspaceTopbar } from "@/components/ligma/WorkspaceTopbar";
 import { Button } from "@/components/ui/button";
 import { Sparkles } from "lucide-react";
-import { demoActions } from "@/lib/demoStore";
 import { toast } from "@/hooks/use-toast";
 
 const templates = [
@@ -20,7 +19,6 @@ const templates = [
 export default function Templates() {
   const router = useRouter();
   const useTemplate = (name: string) => {
-    demoActions.createSession(`${name} — ${new Date().toLocaleDateString()}`);
     toast({ title: "Template applied", description: `${name} session created.` });
     router.push("/lobby");
   };
@@ -29,12 +27,12 @@ export default function Templates() {
       <AppSidebar />
       <main className="flex-1 min-w-0">
         <WorkspaceTopbar label="/templates" title="Templates" />
-        <div className="px-8 py-8 space-y-6">
+        <div className="px-4 md:px-8 py-6 md:py-8 space-y-6">
           <div>
             <div className="zine-label mb-1">§ start somewhere</div>
             <h2 className="text-xl font-bold">Pick a starting frame</h2>
           </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid xs:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
             {templates.map(tpl => (
               <div key={tpl.t} className="rounded-2xl border-2 border-foreground/15 bg-card p-3 hover:border-foreground hover:-translate-y-0.5 transition-all">
                 <div className={`${tpl.color} aspect-[4/3] rounded-xl border-2 border-foreground/20 p-4 relative overflow-hidden shadow-sticky`}>

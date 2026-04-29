@@ -11,6 +11,17 @@ export default {
   prefix: "",
   theme: {
     container: { center: true, padding: "2rem", screens: { "2xl": "1400px" } },
+    screens: {
+      // Custom breakpoints matching design spec
+      'xs':  '480px',   // mobile landscape
+      'sm':  '640px',   // default tailwind sm (kept for compatibility)
+      'md':  '768px',   // mobile landscape / small tablet
+      'tb':  '834px',   // tablet portrait
+      'lg':  '1024px',  // tablet landscape / small laptop
+      'xl':  '1280px',  // laptop
+      'lp':  '1440px',  // laptop / desktop boundary
+      '2xl': '1536px',  // large desktop
+    },
     extend: {
       fontFamily: {
         sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],

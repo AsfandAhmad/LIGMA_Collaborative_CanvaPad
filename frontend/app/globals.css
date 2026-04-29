@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* LIGMA — Blueprint Retro Zine design system. All colors HSL. */
+/* Fluxnote — Blueprint Retro Zine design system. All colors HSL. */
 
 @layer base {
   :root {
@@ -218,5 +218,12 @@
   }
   .zine-label {
     @apply font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground;
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 }

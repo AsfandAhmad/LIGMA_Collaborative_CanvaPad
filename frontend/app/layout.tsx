@@ -24,11 +24,11 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LIGMA — Brainstorm together. Leave with action, not chaos.",
-  description: "LIGMA is a collaborative canvas that turns ideas, decisions, and questions into structured tasks in real time.",
-  authors: [{ name: "LIGMA" }],
+  title: "Fluxnote — Brainstorm together. Leave with action, not chaos.",
+  description: "Fluxnote is a collaborative canvas that turns ideas, decisions, and questions into structured tasks in real time.",
+  authors: [{ name: "Fluxnote" }],
   openGraph: {
-    title: "LIGMA — Collaborative brainstorming, executable outcomes",
+    title: "Fluxnote — Collaborative brainstorming, executable outcomes",
     description: "A blueprint-zine workspace where canvas notes become a synced task board, instantly.",
     type: "website",
     images: ["https://lovable.dev/opengraph-image-p98pqg.png"],

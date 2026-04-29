@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Clock, Users, Star, MoreHorizontal, Trash2, RotateCcw, Share2 } from "lucide-react";
-import { demoActions } from "@/lib/demoStore";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -55,7 +54,6 @@ export function SessionGrid({
 
   const handleOpen = (s: SessionItem) => {
     if (variant !== "default") return;
-    demoActions.touchSession(s.id);
     router.push(`/lobby?roomId=${s.id}&name=${encodeURIComponent(s.name)}`);
   };
 
@@ -67,22 +65,22 @@ export function SessionGrid({
       <DropdownMenuContent align="end">
         {variant === "default" ? (
           <>
-            <DropdownMenuItem onClick={() => { demoActions.toggleStar(s.id); toast({ title: s.starred ? "Removed from favorites" : "Starred" }); }}>
+            <DropdownMenuItem onClick={() => { toast({ title: s.starred ? "Removed from favorites" : "Starred" }); }}>
               <Star className="h-3.5 w-3.5"/> {s.starred ? "Unstar" : "Star"}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setShareTarget({ id: s.id, name: s.name })}>
               <Share2 className="h-3.5 w-3.5"/> Share
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { demoActions.trashSession(s.id); toast({ title: "Moved to trash", description: s.name }); }}>
+            <DropdownMenuItem onClick={() => { toast({ title: "Moved to trash", description: s.name }); }}>
               <Trash2 className="h-3.5 w-3.5"/> Move to trash
             </DropdownMenuItem>
           </>
         ) : (
           <>
-            <DropdownMenuItem onClick={() => { demoActions.restoreSession(s.id); toast({ title: "Restored", description: s.name }); }}>
+            <DropdownMenuItem onClick={() => { toast({ title: "Restored", description: s.name }); }}>
               <RotateCcw className="h-3.5 w-3.5"/> Restore
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { demoActions.deleteSessionForever(s.id); toast({ title: "Deleted forever" }); }}>
+            <DropdownMenuItem onClick={() => { toast({ title: "Deleted forever" }); }}>
               <Trash2 className="h-3.5 w-3.5"/> Delete forever
             </DropdownMenuItem>
           </>
@@ -145,7 +143,7 @@ export function SessionGrid({
 
   return (
     <>
-    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="grid xs:grid-cols-2 lg:grid-cols-3 gap-4">
       {sessions.map((s) => (        <div key={s.id} className="group rounded-2xl border-2 border-foreground/15 bg-card p-3 hover:border-foreground hover:-translate-y-0.5 transition-all relative">
           <button onClick={() => handleOpen(s)} className="block w-full text-left" disabled={variant === "trash"}>
             <div className={`relative aspect-[16/10] rounded-xl ${s.thumb} overflow-hidden border border-foreground/10 ${variant === "trash" ? "opacity-60 grayscale" : ""}`}>

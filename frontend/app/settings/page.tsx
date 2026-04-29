@@ -126,14 +126,14 @@ export default function Settings() {
       <AppSidebar />
       <main className="flex-1 min-w-0">
         <WorkspaceTopbar label="/settings" title="Settings" showSearch={false} />
-        <div className="px-8 py-8 grid lg:grid-cols-[200px_1fr] gap-8 max-w-5xl">
-          <nav className="space-y-1">
+        <div className="px-4 md:px-8 py-6 md:py-8 grid lg:grid-cols-[200px_1fr] gap-6 md:gap-8 max-w-5xl">
+          <nav className="flex lg:flex-col gap-1 overflow-x-auto pb-1 lg:pb-0 scrollbar-none">
             {tabs.map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
                 className={cn(
-                  "w-full text-left px-3 py-2 rounded-md text-sm transition-colors",
+                  "whitespace-nowrap w-full text-left px-3 py-2 rounded-md text-sm transition-colors",
                   tab === t
                     ? "bg-foreground text-background font-medium"
                     : "text-muted-foreground hover:bg-muted"

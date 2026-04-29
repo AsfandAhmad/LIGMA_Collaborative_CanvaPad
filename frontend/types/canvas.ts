@@ -22,7 +22,7 @@ export interface BaseCanvasNode {
   strokeStyle?: 'solid' | 'dashed' | 'dotted';
   opacity?: number;
   
-  // LIGMA-specific (existing)
+  // Fluxnote-specific (existing)
   intent?: 'action' | 'decision' | 'question' | 'reference';
   taskStatus?: 'backlog' | 'todo' | 'in_progress' | 'done';
   assignee?: string;
