@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell, Plus, Sparkles, LogOut, Settings, User as UserIcon, AlertTriangle, Search } from "lucide-react";
@@ -23,7 +23,6 @@ type Props = {
 
 export function WorkspaceTopbar({ label = "/home", title = "Welcome back", showSearch = true }: Props) {
   const { user: authUser, logout, isLoading: authLoading } = useAuth();
-  const [mounted, setMounted] = useState(false);
   const [openNew, setOpenNew] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -31,14 +30,12 @@ export function WorkspaceTopbar({ label = "/home", title = "Welcome back", showS
   const [signOutOpen, setSignOutOpen] = useState(false);
   const router = useRouter();
 
-  const user = mounted ? authUser : null;
+  const user = authUser;
   const initials = user?.name
     ? user.name.split(" ").slice(0, 2).map((p: string) => p[0]).join("").toUpperCase()
     : "?";
   const firstName = user?.name ? user.name.split(" ")[0] : "";
-  const avatarUrl = mounted && !authLoading ? (authUser as any)?.avatar_url ?? null : null;
-
-  useEffect(() => { setMounted(true); }, []);
+  const avatarUrl = (authUser as any)?.avatar_url ?? null;
 
   const handleCreate = async () => {
     const name = newName.trim() || "Untitled session";

@@ -31,11 +31,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    const savedUser = authApi.getUser();
-    if (savedUser) {
-      setUser(savedUser);
+    // Synchronously read from localStorage — no async needed
+    try {
+      const savedUser = authApi.getUser();
+      if (savedUser) {
+        setUser(savedUser);
+      }
+    } catch {
+      // corrupted storage — ignore
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -75,7 +81,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, login, register, logout, updateUser }}>
-      {children}
+      {isLoading ? (
+        // Block render until we know auth state — prevents Guest flash
+        <div className="min-h-screen bg-background" />
+      ) : (
+        children
+      )}
     </AuthContext.Provider>
   );
 }

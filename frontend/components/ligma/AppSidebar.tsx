@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Clock, Share2, LayoutTemplate, FolderKanban, Trash2, Settings, Plus, Menu, X } from "lucide-react";
 import { Logo } from "./Logo";
 import { cn } from "@/lib/utils";
@@ -22,16 +22,12 @@ function SidebarContent({ onNav }: { onNav?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user: authUser, isLoading: authLoading } = useAuth();
-  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => { setMounted(true); }, []);
-
-  const user = mounted ? authUser : null;
-  const initials = user?.name
-    ? user.name.split(" ").slice(0, 2).map((p: string) => p[0]).join("").toUpperCase()
+  const initials = authUser?.name
+    ? authUser.name.split(" ").slice(0, 2).map((p: string) => p[0]).join("").toUpperCase()
     : "?";
-  const displayName = user?.name || "Guest";
-  const displayRole = user?.role || "viewer";
+  const displayName = authUser?.name || "Guest";
+  const displayRole = authUser?.role || "viewer";
 
   return (
     <div className="flex flex-col h-full">
@@ -45,7 +41,7 @@ function SidebarContent({ onNav }: { onNav?: () => void }) {
           className="w-full flex items-center gap-3 rounded-lg p-2 hover:bg-sidebar-accent transition-colors text-left"
         >
           <div className="h-9 w-9 rounded-full overflow-hidden bg-gradient-blueprint flex items-center justify-center font-bold text-primary-foreground text-sm shrink-0">
-            {(authUser as any)?.avatar_url && mounted && !authLoading ? (
+            {(authUser as any)?.avatar_url ? (
               <img src={(authUser as any).avatar_url} alt={displayName} className="h-full w-full object-cover" />
             ) : (
               <span>{initials}</span>
