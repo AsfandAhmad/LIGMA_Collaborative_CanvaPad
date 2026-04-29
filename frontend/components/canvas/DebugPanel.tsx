@@ -120,9 +120,9 @@ export function DebugPanel({
               <div key={cursor.userId} className="text-[10px]">
                 <span
                   className="inline-block w-2 h-2 rounded-full mr-1"
-                  style={{ backgroundColor: cursor.color }}
+                  style={{ backgroundColor: cursor.userColor }}
                 />
-                {cursor.name || cursor.userId.slice(0, 8)}
+                {cursor.userName || cursor.userId.slice(0, 8)}
               </div>
             ))}
           </div>
