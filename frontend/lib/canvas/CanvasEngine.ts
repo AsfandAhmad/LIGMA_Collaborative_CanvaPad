@@ -129,8 +129,17 @@ export class CanvasEngine {
   }
 
   fitToScreen(): void {
-    const bounds = getNodesBounds(this.nodes);
-    if (bounds) {
+    const nodeBounds = getNodesBounds(this.nodes);
+    if (nodeBounds) {
+      // Convert {x, y, width, height} to Bounds {left, top, right, bottom, width, height}
+      const bounds = {
+        left: nodeBounds.x,
+        top: nodeBounds.y,
+        right: nodeBounds.x + nodeBounds.width,
+        bottom: nodeBounds.y + nodeBounds.height,
+        width: nodeBounds.width,
+        height: nodeBounds.height,
+      };
       this.viewport.fitBounds(bounds);
     } else {
       this.viewport.reset();
