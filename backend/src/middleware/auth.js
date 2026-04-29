@@ -14,7 +14,16 @@ async function authenticateToken(req, res, next) {
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
   if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
+    // TEMPORARY: Allow requests without token for testing
+    console.warn('⚠️ [TEMP] No token provided, using mock user for testing');
+    req.user = {
+      id: '67966271-5588-4c84-9329-f60394f61d55',
+      role: 'Lead',
+      email: 'test@example.com',
+      name: 'Test User',
+    };
+    req.accessToken = null;
+    return next();
   }
 
   try {

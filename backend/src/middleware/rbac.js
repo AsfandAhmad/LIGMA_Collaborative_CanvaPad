@@ -20,9 +20,27 @@ function requireRole(...allowedRoles) {
 
     let workspaceRole = req.user.role;
     if (req.accessToken && roomId) {
-      workspaceRole = await rbacService.getWorkspaceRoleForRoom(req.user.id, roomId, req.accessToken);
+      workspaceRole = await rbacService.getWorkspaceRoleForRoom(req.user.id, roomId, req.accessToken, req.user.email);
     } else if (req.accessToken && nodeId) {
       workspaceRole = await rbacService.getWorkspaceRoleForNode(req.user.id, nodeId, req.accessToken);
+    }
+
+    // If no workspace role found, check if room has no workspace (allow lead role by default)
+    if (!workspaceRole && roomId) {
+      const { getSupabaseServiceClient } = require('../utils/supabase');
+      const serviceClient = getSupabaseServiceClient();
+      if (serviceClient) {
+        const { data: room } = await serviceClient
+          .from('rooms')
+          .select('workspace_id')
+          .eq('id', roomId)
+          .maybeSingle();
+        
+        // If room has no workspace, grant lead role by default
+        if (room && !room.workspace_id) {
+          workspaceRole = 'lead';
+        }
+      }
     }
 
     const normalizedRole = workspaceRole ? String(workspaceRole).toLowerCase() : null;

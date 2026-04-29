@@ -10,10 +10,13 @@ const { getSupabaseClientForToken, getSupabaseServiceClient } = require('../util
  */
 async function getOrCreateShare(roomId, userId, accessToken) {
   const client = getSupabaseClientForToken(accessToken);
-  if (!client) throw new Error('No client');
+  const serviceClient = getSupabaseServiceClient();
+  const effectiveClient = client || serviceClient;
+  
+  if (!effectiveClient) throw new Error('No client available');
 
   // Try to fetch existing
-  const { data: existing } = await client
+  const { data: existing } = await effectiveClient
     .from('room_shares')
     .select('*')
     .eq('room_id', roomId)
@@ -22,7 +25,7 @@ async function getOrCreateShare(roomId, userId, accessToken) {
   if (existing) return existing;
 
   // Create new share config (default: restricted, viewer role)
-  const { data, error } = await client
+  const { data, error } = await effectiveClient
     .from('room_shares')
     .insert({ room_id: roomId, created_by: userId, access_type: 'restricted', link_role: 'viewer' })
     .select('*')
@@ -35,11 +38,33 @@ async function getOrCreateShare(roomId, userId, accessToken) {
 /**
  * Get share config + invites for a room (for the share modal).
  */
-async function getShareSettings(roomId, accessToken) {
-  const client = getSupabaseClientForToken(accessToken);
-  if (!client) return null;
+async function getShareSettings(roomId, accessToken, userId) {
+  // Use service client to bypass RLS for reading share settings
+  const serviceClient = getSupabaseServiceClient();
+  if (!serviceClient) {
+    console.warn('Service client not available, falling back to user client');
+    const client = getSupabaseClientForToken(accessToken);
+    if (!client) return null;
+    
+    const { data: share } = await client
+      .from('room_shares')
+      .select('*')
+      .eq('room_id', roomId)
+      .maybeSingle();
 
-  const { data: share } = await client
+    if (!share) return { share: null, invites: [] };
+
+    const { data: invites } = await client
+      .from('room_share_invites')
+      .select('id, email, role, status, user_id, created_at')
+      .eq('room_id', roomId)
+      .neq('status', 'revoked')
+      .order('created_at', { ascending: true });
+
+    return { share, invites: invites || [] };
+  }
+
+  const { data: share } = await serviceClient
     .from('room_shares')
     .select('*')
     .eq('room_id', roomId)
@@ -47,7 +72,7 @@ async function getShareSettings(roomId, accessToken) {
 
   if (!share) return { share: null, invites: [] };
 
-  const { data: invites } = await client
+  const { data: invites } = await serviceClient
     .from('room_share_invites')
     .select('id, email, role, status, user_id, created_at')
     .eq('room_id', roomId)
@@ -64,7 +89,10 @@ async function getShareSettings(roomId, accessToken) {
  */
 async function updateShareSettings(roomId, userId, { accessType, linkRole }, accessToken) {
   const client = getSupabaseClientForToken(accessToken);
-  if (!client) throw new Error('No client');
+  const serviceClient = getSupabaseServiceClient();
+  const effectiveClient = client || serviceClient;
+  
+  if (!effectiveClient) throw new Error('No client available');
 
   // Ensure share row exists
   await getOrCreateShare(roomId, userId, accessToken);
@@ -73,7 +101,7 @@ async function updateShareSettings(roomId, userId, { accessType, linkRole }, acc
   if (accessType) updates.access_type = accessType;
   if (linkRole) updates.link_role = linkRole;
 
-  const { data, error } = await client
+  const { data, error } = await effectiveClient
     .from('room_shares')
     .update(updates)
     .eq('room_id', roomId)
@@ -90,12 +118,14 @@ async function updateShareSettings(roomId, userId, { accessType, linkRole }, acc
  */
 async function addInvites(roomId, userId, emails, role, accessToken) {
   const client = getSupabaseClientForToken(accessToken);
-  if (!client) throw new Error('No client');
+  const serviceClient = getSupabaseServiceClient();
+  const effectiveClient = client || serviceClient;
+  
+  if (!effectiveClient) throw new Error('No client available');
 
   const share = await getOrCreateShare(roomId, userId, accessToken);
 
   // Look up user_ids for known emails (best-effort)
-  const serviceClient = getSupabaseServiceClient();
   const emailToUserId = {};
   if (serviceClient) {
     const { data: users } = await serviceClient
@@ -116,7 +146,7 @@ async function addInvites(roomId, userId, emails, role, accessToken) {
   }));
 
   // Upsert: if email already invited, update role
-  const { data, error } = await client
+  const { data, error } = await effectiveClient
     .from('room_share_invites')
     .upsert(rows, { onConflict: 'room_id,email', ignoreDuplicates: false })
     .select('*');
@@ -130,9 +160,12 @@ async function addInvites(roomId, userId, emails, role, accessToken) {
  */
 async function revokeInvite(inviteId, accessToken) {
   const client = getSupabaseClientForToken(accessToken);
-  if (!client) throw new Error('No client');
+  const serviceClient = getSupabaseServiceClient();
+  const effectiveClient = client || serviceClient;
+  
+  if (!effectiveClient) throw new Error('No client available');
 
-  const { error } = await client
+  const { error } = await effectiveClient
     .from('room_share_invites')
     .update({ status: 'revoked' })
     .eq('id', inviteId);

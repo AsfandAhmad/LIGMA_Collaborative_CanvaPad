@@ -17,7 +17,7 @@ const shareService = require('../services/shareService');
 router.get('/:roomId/share', authenticateToken, async (req, res) => {
   try {
     const { roomId } = req.params;
-    const settings = await shareService.getShareSettings(roomId, req.accessToken);
+    const settings = await shareService.getShareSettings(roomId, req.accessToken, req.user.id);
     res.json(settings || { share: null, invites: [] });
   } catch (err) {
     console.error('getShareSettings error:', err);
