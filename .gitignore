@@ -1,264 +1,55 @@
 # Dependencies
 node_modules/
-frontend/node_modules/
-backend/node_modules/
-**/node_modules/
-
-# Package manager files
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
-
-# Environment variables
-.env
-.env.*
-!.env.example
-backend/.env
-frontend/.env
-**/.env
-**/.env.local
-**/.env.development.local
-**/.env.test.local
-**/.env.production.local
-
-# Build outputs
-frontend/.next/
-frontend/out/
-frontend/build/
-backend/dist/
-backend/build/
-dist/
-build/
-out/
-
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-logs/
-*.log.*
-
-# Runtime data
-pids/
-*.pid
-*.seed
-*.pid.lock
+.pnp
+.pnp.js
 
 # Testing
 coverage/
-.nyc_output/
-*.lcov
-.jest/
 
-# Prisma
-backend/prisma/migrations/
-backend/node_modules/.prisma/
-.prisma/
-
-# Database files
-*.db
-*.sqlite
-*.sqlite3
-
-# OS files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-desktop.ini
-
-# IDE and editors
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-*.sublime-project
-*.sublime-workspace
-.project
-.classpath
-.settings/
-*.iml
-
-# Temporary files
-*.tmp
-*.temp
-.cache/
-.parcel-cache/
-
-# Next.js
+# Production
+build/
+dist/
 .next/
 out/
-.vercel/
-.turbo/
 
-# Nuxt.js
-.nuxt/
-.output/
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# Vuepress
-.vuepress/dist/
-
-# Serverless
-.serverless/
-
-# FuseBox
-.fusebox/
-
-# DynamoDB Local
-.dynamodb/
-
-# TernJS
-.tern-port
-
-# Stores VSCode versions
-.vscode-test/
-
-# Optional npm cache
-.npm/
-
-# Optional eslint cache
-.eslintcache
-
-# Optional stylelint cache
-.stylelintcache
-
-# Microbundle cache
-.rpt2_cache/
-.rts2_cache_cjs/
-.rts2_cache_es/
-.rts2_cache_umd/
-
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# dotenv environment variable files
-.env.backup
-
-# Webpack
-.webpack/
-
-# Docker
-docker-compose.override.yml
-volumes/
-
-# MacOS
-.AppleDouble
-.LSOverride
-
-# Windows
-[Tt]humbs.db
-[Dd]esktop.ini
-$RECYCLE.BIN/
-
-# Linux
-*~
-
-# Backup files
-*.bak
-*.backup
-*.old
-
-# Compiled files
-*.com
-*.class
-*.dll
-*.exe
-*.o
-*.so
-
-# Archives
-*.7z
-*.dmg
-*.gz
-*.iso
-*.jar
-*.rar
-*.tar
-*.zip
-
-# Debug files
+# Logs
+logs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
 
-# Diagnostic reports
-report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+# OS
+.DS_Store
+*.pem
+Thumbs.db
 
-# TypeScript cache
-*.tsbuildinfo
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# Optional npm cache directory
-.npm
+# Prisma
+backend/prisma/migrations/
 
-# Optional eslint cache
-.eslintcache
+# PM2
+.pm2/
 
-# Microbundle cache
-.rpt2_cache/
-.rts2_cache_cjs/
-.rts2_cache_es/
-.rts2_cache_umd/
+# Temporary files
+*.tmp
+*.temp
+backend/data/ydocs/*.bin
 
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# parcel-bundler cache
-.cache
-.parcel-cache
-
-# Next.js build output
-.next
-out
-
-# Nuxt.js build / generate output
-.nuxt
-dist
-
-# Gatsby files
-.cache/
-public
-
-# vuepress build output
-.vuepress/dist
-
-# Serverless directories
-.serverless/
-
-# FuseBox cache
-.fusebox/
-
-# DynamoDB Local files
-.dynamodb/
-
-# TernJS port file
-.tern-port
-
-# Stores VSCode versions used for testing VSCode extensions
-.vscode-test
-
-# yarn v2
-.yarn/cache
-.yarn/unplugged
-.yarn/build-state.yml
-.yarn/install-state.gz
-.pnp.*
+# Test files
+backend/test-sharing-tables.js

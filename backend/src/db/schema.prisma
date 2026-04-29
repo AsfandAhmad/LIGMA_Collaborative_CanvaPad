@@ -117,3 +117,40 @@ model CanvasNode {
   @@index([roomId])
   @@index([createdBy])
 }
+
+model RoomShare {
+  id         String   @id @default(uuid())
+  roomId     String   @unique @map("room_id")
+  createdBy  String   @map("created_by")
+  accessType String   @default("restricted") @map("access_type") // "anyone_with_link" or "restricted"
+  linkRole   String   @default("viewer") @map("link_role")     // "viewer", "contributor", "lead"
+  token      String   @unique @default(uuid())
+  expiresAt  DateTime? @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  
+  invites    RoomShareInvite[]
+  
+  @@map("room_shares")
+}
+
+model RoomShareInvite {
+  id        String   @id @default(uuid())
+  roomId    String   @map("room_id")
+  shareId   String   @map("share_id")
+  invitedBy String   @map("invited_by")
+  email     String
+  userId    String?  @map("user_id")
+  role      String   @default("viewer") // "viewer", "contributor", "lead"
+  status    String   @default("pending") // "pending", "accepted", "revoked"
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  share     RoomShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
+  
+  @@unique([roomId, email])
+  @@index([roomId])
+  @@index([email])
+  @@index([userId])
+  @@map("room_share_invites")
+}

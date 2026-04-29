@@ -43,7 +43,7 @@ interface ShareModalProps {
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 async function getAuthHeader(): Promise<Record<string, string>> {
   try {

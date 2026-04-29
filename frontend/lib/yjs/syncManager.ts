@@ -43,16 +43,23 @@ export class SyncManager {
       this.provider.disconnect();
     }
 
-    // Try to load initial canvas state from API, but don't block if it fails
+    // Try to load initial canvas state from API with timeout
     try {
       const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/canvas/${roomId}`;
       console.log(`[SyncManager] Fetching initial state from: ${apiUrl}`);
+      
+      // Add 5 second timeout to prevent hanging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
       
       const response = await fetch(apiUrl, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = await response.json();
@@ -76,12 +83,14 @@ export class SyncManager {
         }
       } else {
         console.warn(`⚠️ [SyncManager] API returned ${response.status}, continuing with WebSocket only`);
-        // Don't throw - WebSocket sync will still work for real-time collaboration
       }
-    } catch (error) {
-      console.warn('⚠️ [SyncManager] Could not load initial state, continuing with WebSocket only:', error.message);
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.warn('⚠️ [SyncManager] API fetch timed out after 5s, continuing with WebSocket only');
+      } else {
+        console.warn('⚠️ [SyncManager] Could not load initial state, continuing with WebSocket only:', error.message);
+      }
       // Continue anyway - WebSocket sync will work even without initial state
-      // This allows the app to work even if the API endpoint is broken
     }
 
     // Now connect WebSocket for real-time sync
