@@ -130,10 +130,9 @@ function EditorContent() {
       },
       locked: node.locked,
       taskStatus: node.taskStatus,
+      assignee: node.assignee,
     };
   });
-    assignee: node.assignee,
-  }));
 
   const selected = notes.find(n => n.id === selectedId);
   const linkedTaskNotes = notes.filter(n => n.taskStatus);
