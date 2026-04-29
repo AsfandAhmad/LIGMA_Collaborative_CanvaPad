@@ -35,7 +35,6 @@ export function useRoleSync(ws: WebSocket | null) {
           toast({
             title: "Role Updated",
             description: `Your role has been changed to ${roleLabels[msg.newRole] || msg.newRole}`,
-            duration: 5000,
           });
           
           // If downgraded to viewer, show additional warning
@@ -45,7 +44,6 @@ export function useRoleSync(ws: WebSocket | null) {
                 title: "View-Only Mode",
                 description: "You can no longer edit the canvas. Contact the room owner to regain edit access.",
                 variant: "destructive",
-                duration: 7000,
               });
             }, 1000);
           }

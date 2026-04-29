@@ -1,13 +1,19 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { tasksApi, Task } from '../api';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4000';
+const WS_PATH = '/ws';
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY_MS = 2000;
 
 export function useTaskBoard(roomId: string) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ws, setWs] = useState<WebSocket | null>(null);
+  const reconnectAttempts = useRef(0);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMounted = useRef(true);
 
   // Fetch initial tasks
   const fetchTasks = useCallback(async () => {
@@ -38,66 +44,93 @@ export function useTaskBoard(roomId: string) {
       return;
     }
 
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-    
-    console.log('[useTaskBoard] Connecting to WebSocket with roomId:', roomId);
-    // Backend allows connections without token (guest mode)
-    const wsUrl = token 
-      ? `${WS_URL}/ws?roomId=${roomId}&token=${token}`
-      : `${WS_URL}/ws?roomId=${roomId}`;
-    
-    const websocket = new WebSocket(wsUrl);
+    isMounted.current = true;
+    reconnectAttempts.current = 0;
 
-    websocket.onopen = () => {
-      console.log('[useTaskBoard] WebSocket connected');
-    };
+    function connect() {
+      if (!isMounted.current) return;
 
-    websocket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        
-        console.log('[useTaskBoard] Received message:', message.type);
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
 
-        switch (message.type) {
-          case 'task:created':
-            setTasks((prev) => {
-              // Avoid duplicates
-              if (prev.find((t) => t.id === message.task.id)) {
-                return prev;
-              }
-              return [message.task, ...prev];
-            });
-            break;
+      // Normalize base URL so it always includes /ws
+      const wsBase = WS_URL.endsWith(WS_PATH) ? WS_URL : `${WS_URL}${WS_PATH}`;
+      // Backend allows connections without token (guest mode)
+      const wsUrl = token
+        ? `${wsBase}?roomId=${roomId}&token=${token}`
+        : `${wsBase}?roomId=${roomId}`;
 
-          case 'task:updated':
-            setTasks((prev) =>
-              prev.map((t) =>
-                t.id === message.task.id ? { ...t, ...message.task } : t
-              )
-            );
-            break;
+      console.log('[useTaskBoard] Connecting to WebSocket with roomId:', roomId);
+      const websocket = new WebSocket(wsUrl);
 
-          case 'task:deleted':
-            setTasks((prev) => prev.filter((t) => t.id !== message.taskId));
-            break;
+      websocket.onopen = () => {
+        console.log('[useTaskBoard] WebSocket connected');
+        reconnectAttempts.current = 0;
+        if (isMounted.current) setWs(websocket);
+      };
+
+      websocket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+
+          switch (message.type) {
+            case 'task:created':
+              setTasks((prev) => {
+                if (prev.find((t) => t.id === message.task.id)) return prev;
+                return [message.task, ...prev];
+              });
+              break;
+
+            case 'task:updated':
+              setTasks((prev) =>
+                prev.map((t) =>
+                  t.id === message.task.id ? { ...t, ...message.task } : t
+                )
+              );
+              break;
+
+            case 'task:deleted':
+              setTasks((prev) => prev.filter((t) => t.id !== message.taskId));
+              break;
+          }
+        } catch (err) {
+          console.error('[useTaskBoard] Failed to parse WebSocket message:', err);
         }
-      } catch (err) {
-        console.error('[useTaskBoard] Failed to parse WebSocket message:', err);
-      }
-    };
+      };
 
-    websocket.onerror = (err) => {
-      console.error('[useTaskBoard] WebSocket error:', err);
-    };
+      websocket.onerror = () => {
+        // Browser WebSocket error events carry no useful detail — log minimally
+        console.warn('[useTaskBoard] WebSocket connection failed, will retry if possible');
+      };
 
-    websocket.onclose = () => {
-      console.log('[useTaskBoard] WebSocket disconnected');
-    };
+      websocket.onclose = (event) => {
+        console.log('[useTaskBoard] WebSocket disconnected', event.code);
+        if (isMounted.current) setWs(null);
 
-    setWs(websocket);
+        // Reconnect unless closed cleanly (1000) or component unmounted
+        if (
+          isMounted.current &&
+          event.code !== 1000 &&
+          reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS
+        ) {
+          reconnectAttempts.current += 1;
+          const delay = RECONNECT_DELAY_MS * reconnectAttempts.current;
+          console.log(`[useTaskBoard] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current}/${MAX_RECONNECT_ATTEMPTS})`);
+          reconnectTimer.current = setTimeout(connect, delay);
+        } else if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+          console.warn('[useTaskBoard] Max reconnect attempts reached');
+        }
+      };
+    }
+
+    connect();
 
     return () => {
-      websocket.close();
+      isMounted.current = false;
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      setWs((prev) => {
+        prev?.close(1000, 'component unmounted');
+        return null;
+      });
     };
   }, [roomId]);
 
