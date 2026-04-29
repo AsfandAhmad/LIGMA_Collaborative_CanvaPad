@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Play, Users, Clock, ListChecks, Activity, Lock, Sparkles, UserPlus } from "lucide-react";
@@ -22,7 +22,7 @@ const members = [
 const tabs = ["Overview", "Tasks", "Members", "Activity", "Settings"] as const;
 type Tab = typeof tabs[number];
 
-export default function Lobby() {
+function LobbyContent() {
   const searchParams = useSearchParams();
   const roomId = searchParams?.get('roomId') || '';
   const sessionName = searchParams?.get('name') ? decodeURIComponent(searchParams.get('name')!) : (roomId ? roomId : 'New Session');
@@ -242,5 +242,20 @@ export default function Lobby() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function Lobby() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+          <p className="mt-4 text-sm text-muted-foreground">Loading lobby...</p>
+        </div>
+      </div>
+    }>
+      <LobbyContent />
+    </Suspense>
   );
 }
