@@ -7,8 +7,12 @@ import { useAuth } from '../auth-context';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4000';
 
-let globalAwareness: Awareness | null = null;
-let globalWs: WebSocket | null = null;
+// Per-room singletons — survive React StrictMode double-mount
+const roomAwarenessMap = new Map<string, Awareness>();
+const roomWsMap = new Map<string, WebSocket>();
+const roomReconnectCountMap = new Map<string, number>();
+// Reference count per room so we only close when truly no consumers remain
+const roomRefCountMap = new Map<string, number>();
 
 export interface UsePresenceOptions {
   roomId: string;
@@ -28,45 +32,78 @@ export function usePresence(options: UsePresenceOptions): UsePresenceReturn {
   const { user } = useAuth();
   const [cursors, setCursors] = useState<UserCursor[]>([]);
   const [isConnected, setIsConnected] = useState(false);
-  const awarenessRef = useRef<Awareness | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectAttemptsRef = useRef(0);
   const maxReconnectAttempts = 5;
 
-  // Initialize awareness
+  // Increment ref count and set up awareness on mount; decrement on unmount
   useEffect(() => {
-    if (!globalAwareness) {
-      globalAwareness = new Awareness();
+    // Ensure awareness exists for this room
+    if (!roomAwarenessMap.has(roomId)) {
+      roomAwarenessMap.set(roomId, new Awareness());
     }
-    awarenessRef.current = globalAwareness;
+    const awareness = roomAwarenessMap.get(roomId)!;
 
     if (user) {
-      globalAwareness.setLocalUser(user.id);
+      awareness.setLocalUser(user.id);
+    }
+
+    // Increment ref count
+    roomRefCountMap.set(roomId, (roomRefCountMap.get(roomId) ?? 0) + 1);
+
+    // Sync current connection state
+    const existingWs = roomWsMap.get(roomId);
+    if (existingWs?.readyState === WebSocket.OPEN) {
+      setIsConnected(true);
     }
 
     // Subscribe to cursor changes
-    const unsubscribe = globalAwareness.subscribe(() => {
-      setCursors(globalAwareness!.getCursors());
+    const unsubscribe = awareness.subscribe(() => {
+      setCursors(awareness.getCursors());
     });
 
     // Cleanup stale cursors every 10 seconds
     const cleanupInterval = setInterval(() => {
-      globalAwareness?.cleanupStaleCursors();
+      awareness.cleanupStaleCursors();
     }, 10000);
 
     return () => {
       unsubscribe();
       clearInterval(cleanupInterval);
+
+      // Decrement ref count; only close WS when no consumers remain
+      const count = (roomRefCountMap.get(roomId) ?? 1) - 1;
+      roomRefCountMap.set(roomId, count);
+
+      if (count <= 0) {
+        roomRefCountMap.delete(roomId);
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        const ws = roomWsMap.get(roomId);
+        if (ws) {
+          ws.close();
+          roomWsMap.delete(roomId);
+        }
+        roomReconnectCountMap.delete(roomId);
+      }
     };
-  }, [user]);
+  }, [roomId, user]);
 
   // Connect to WebSocket
   const connect = useCallback(() => {
-    if (!user) return;
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    // Reuse existing open connection for this room
+    const existingWs = roomWsMap.get(roomId);
+    if (existingWs?.readyState === WebSocket.OPEN) {
+      setIsConnected(true);
+      return;
+    }
+    // Don't open a second connection if one is already connecting
+    if (existingWs?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
 
-    const getToken = async (): Promise<string | null> => {
+    const getToken = async (): Promise<string> => {
       try {
         const { supabase } = await import('../supabase');
         const { data } = await supabase.auth.getSession();
@@ -77,39 +114,42 @@ export function usePresence(options: UsePresenceOptions): UsePresenceReturn {
       } catch {
         // fall through
       }
-      return localStorage.getItem('auth_token');
+      return localStorage.getItem('auth_token') ?? '';
     };
 
     getToken().then((token) => {
-      if (!token) {
-        console.warn('[usePresence] No auth token — cursors disabled');
+      // Guard: if a connection was opened while we were awaiting the token, bail
+      const raceWs = roomWsMap.get(roomId);
+      if (raceWs?.readyState === WebSocket.OPEN || raceWs?.readyState === WebSocket.CONNECTING) {
         return;
       }
 
       try {
         const url = `${WS_URL}/ws?token=${encodeURIComponent(token)}&roomId=${encodeURIComponent(roomId)}`;
         const ws = new WebSocket(url);
-        wsRef.current = ws;
-        globalWs = ws;
+        roomWsMap.set(roomId, ws);
 
         ws.onopen = () => {
           setIsConnected(true);
-          reconnectAttemptsRef.current = 0;
+          roomReconnectCountMap.set(roomId, 0);
         };
 
         ws.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data);
+            const awareness = roomAwarenessMap.get(roomId);
+            if (!awareness) return;
+
             if (message.type === 'CURSOR_MOVE') {
               const { userId, userName, userColor, x, y } = message.payload ?? message;
-              awarenessRef.current?.updateCursor(userId ?? message.userId, {
+              awareness.updateCursor(userId ?? message.userId, {
                 userName: userName ?? message.userName,
                 userColor: userColor ?? message.color,
                 x, y,
               });
             } else if (message.type === 'CURSOR_SNAPSHOT') {
               message.cursors?.forEach((cursor: UserCursor) => {
-                awarenessRef.current?.updateCursor(cursor.userId, {
+                awareness.updateCursor(cursor.userId, {
                   userName: cursor.userName,
                   userColor: cursor.userColor,
                   x: cursor.x,
@@ -117,7 +157,7 @@ export function usePresence(options: UsePresenceOptions): UsePresenceReturn {
                 });
               });
             } else if (message.type === 'USER_LEFT') {
-              awarenessRef.current?.removeCursor(message.userId);
+              awareness.removeCursor(message.userId);
             }
           } catch (error) {
             console.error('[usePresence] Message parse error:', error);
@@ -126,62 +166,68 @@ export function usePresence(options: UsePresenceOptions): UsePresenceReturn {
 
         ws.onclose = () => {
           setIsConnected(false);
-          awarenessRef.current?.clear();
-          if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-            reconnectAttemptsRef.current++;
-            const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+          roomAwarenessMap.get(roomId)?.clear();
+          // Only remove from map if this is still the current ws for the room
+          if (roomWsMap.get(roomId) === ws) {
+            roomWsMap.delete(roomId);
+          }
+
+          // Only reconnect if there are still consumers for this room
+          const refCount = roomRefCountMap.get(roomId) ?? 0;
+          if (refCount <= 0) return;
+
+          const attempts = roomReconnectCountMap.get(roomId) ?? 0;
+          if (attempts < maxReconnectAttempts) {
+            roomReconnectCountMap.set(roomId, attempts + 1);
+            const delay = Math.min(1000 * Math.pow(2, attempts + 1), 10000);
             reconnectTimeoutRef.current = setTimeout(() => connect(), delay);
+          } else {
+            console.warn(`[usePresence] Max reconnect attempts reached for room ${roomId}`);
           }
         };
 
         ws.onerror = () => {
-          // Silently handle — onclose will fire next and handle reconnect
+          // Silently handle — onclose fires next
         };
       } catch (error) {
         console.warn('[usePresence] Connection error:', error);
       }
     });
-  }, [roomId, user]);
+  }, [roomId]);
 
-  // Disconnect from WebSocket
+  // Disconnect from WebSocket (explicit user action)
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
-
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-      globalWs = null;
+    const ws = roomWsMap.get(roomId);
+    if (ws) {
+      ws.close();
+      roomWsMap.delete(roomId);
     }
-
+    roomReconnectCountMap.delete(roomId);
     setIsConnected(false);
-    awarenessRef.current?.clear();
-  }, []);
+    roomAwarenessMap.get(roomId)?.clear();
+  }, [roomId]);
 
   // Auto-connect on mount
   useEffect(() => {
-    if (autoConnect && user) {
+    if (autoConnect) {
       connect();
     }
-
-    return () => {
-      // Don't disconnect on unmount - keep connection alive for other components
-    };
-  }, [autoConnect, user, connect]);
+  }, [autoConnect, connect]);
 
   // Update cursor position
   const updateCursor = useCallback((x: number, y: number) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    if (!user) return;
+    const ws = roomWsMap.get(roomId);
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-    // Send cursor update to server
-    wsRef.current.send(JSON.stringify({
+    ws.send(JSON.stringify({
       type: 'CURSOR_MOVE',
       payload: { x, y },
     }));
-  }, [user]);
+  }, [roomId]);
 
   return {
     cursors,

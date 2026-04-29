@@ -13,7 +13,8 @@ const { requireRole } = require('../middleware/rbac');
 const { ydocs } = require('../ws/yjsServer');
 
 // Get full canvas state — tries DB first, falls back to live Y.Doc
-router.get('/:roomId', authenticateToken, async (req, res) => {
+// Allow unauthenticated access for guest users (they can still access via WebSocket)
+router.get('/:roomId', async (req, res) => {
   try {
     const { roomId } = req.params;
     console.log(`[Canvas API] Getting canvas state for room: ${roomId}`);

@@ -1,98 +1,223 @@
-# LIGMA — Collaborative CanvaPad
+# LIGMA Collaborative CanvaPad
 
-Real-time collaborative canvas with Yjs CRDT sync, AI intent classification, event sourcing, and RBAC.
+A real-time collaborative canvas application with event sourcing, RBAC, and AI-powered features.
 
-## Stack
+## 🚀 Features
 
-| Layer | Tech |
-|---|---|
-| Frontend | Next.js, TypeScript, Tailwind, Yjs |
-| Backend | Node.js, Express, WebSocket, Prisma |
-| Database | PostgreSQL via Supabase |
-| AI | Groq — Llama 3.3 70B |
+- **Real-time Collaboration**: Multiple users can work on the same canvas simultaneously
+- **Event Sourcing**: Complete audit trail of all canvas changes
+- **RBAC**: Role-based access control with workspace permissions
+- **AI Integration**: Groq AI for intelligent canvas suggestions
+- **WebSocket Support**: Dual WebSocket architecture (Yjs CRDT + custom events)
+- **Persistent Storage**: Supabase PostgreSQL backend
+- **Modern Stack**: Next.js frontend + Express backend
 
-## Quick Start
+## 📋 Prerequisites
 
-```bash
-# Backend
-cd backend && npm install && npm run dev   # → http://localhost:4000
+- Node.js 18+ and npm
+- PostgreSQL database (Supabase recommended)
+- Groq API key (for AI features)
 
-# Frontend (new terminal)
-cd frontend && npm install && npm run dev  # → http://localhost:3000
+## 🛠️ Tech Stack
+
+### Frontend
+- Next.js 16
+- React 18
+- TypeScript
+- Tailwind CSS
+- Radix UI components
+- Yjs for CRDT synchronization
+- TanStack Query for data fetching
+
+### Backend
+- Node.js + Express
+- WebSocket (ws library)
+- Yjs WebSocket server
+- Prisma ORM
+- PostgreSQL (Supabase)
+- JWT authentication
+- Groq AI integration
+
+## 📦 Project Structure
+
+```
+LIGMA_Collaborative_CanvaPad/
+├── backend/                 # Express API server
+│   ├── src/
+│   │   ├── routes/         # API routes
+│   │   ├── services/       # Business logic
+│   │   ├── middleware/     # Auth & RBAC
+│   │   ├── ws/            # WebSocket handlers
+│   │   ├── db/            # Database schema & migrations
+│   │   └── utils/         # Utilities
+│   └── package.json
+├── frontend/               # Next.js application
+│   ├── app/               # App router pages
+│   ├── components/        # React components
+│   ├── lib/              # Utilities & hooks
+│   └── package.json
+├── render.yaml            # Render deployment config
+└── RENDER_DEPLOYMENT.md   # Deployment guide
 ```
 
-## Environment Variables
+## 🚀 Quick Start
 
-**`backend/.env`**
+### Local Development
+
+1. **Clone the repository**
+   ```bash
+   git clone <your-repo-url>
+   cd LIGMA_Collaborative_CanvaPad
+   ```
+
+2. **Set up the backend**
+   ```bash
+   cd backend
+   npm install
+   cp .env.example .env
+   # Edit .env with your configuration
+   npx prisma generate --schema=src/db/schema.prisma
+   npm start
+   ```
+
+3. **Set up the frontend**
+   ```bash
+   cd frontend
+   npm install
+   cp .env.example .env.local
+   # Edit .env.local with your configuration
+   npm run dev
+   ```
+
+4. **Access the application**
+   - Frontend: http://localhost:3000
+   - Backend API: http://localhost:4000
+   - WebSocket: ws://localhost:4000/ws
+   - Yjs WebSocket: ws://localhost:4000/yjs
+
+### Database Setup
+
+See [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) for detailed database configuration.
+
+Quick setup:
+```bash
+cd backend
+# Run the setup script
+./setup-db.sh  # Linux/Mac
+# or
+./setup-db.ps1  # Windows
+```
+
+## 🌐 Deployment
+
+### Deploy to Render
+
+This project is configured for easy deployment to Render using the included `render.yaml` blueprint.
+
+**Quick Deploy:**
+1. Push your code to GitHub
+2. Connect your repository to Render
+3. Render will auto-detect `render.yaml`
+4. Configure environment variables
+5. Deploy!
+
+See [RENDER_DEPLOYMENT.md](./RENDER_DEPLOYMENT.md) for detailed deployment instructions.
+
+### Environment Variables
+
+#### Backend (.env)
 ```env
-PORT=4000
-DATABASE_URL=postgresql://...   # Supabase Session Pooler URL
-JWT_SECRET=change-this-in-production
-GROQ_API_KEY=your-groq-api-key
-SUPABASE_URL=https://xxx.supabase.co
+DATABASE_URL=postgresql://...
+JWT_SECRET=your_secret_key
+GROQ_API_KEY=your_groq_key
+SUPABASE_URL=https://...
 SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
+PORT=4000
+NODE_ENV=development
 ```
 
-**`frontend/.env.local`**
+#### Frontend (.env.local)
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:4000
 NEXT_PUBLIC_WS_URL=ws://localhost:4000
+NEXT_PUBLIC_SUPABASE_URL=https://...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 ```
 
-> See `SUPABASE_SETUP.md` to connect the database.
+## 🧪 Testing
 
-## Architecture
+```bash
+# Backend tests
+cd backend
+npm test
 
-```
-Frontend (Next.js)
-  useCanvas   ── binary WS ──▶  /yjs   (Yjs CRDT sync)
-  usePresence ── JSON WS ────▶  /ws    (cursors / presence)
-  REST calls  ── HTTP ────────▶  /api/*
-
-Backend (Express + ws)
-  RBAC checks before every mutation
-  Event sourcing — append-only Event table
-  Disk persistence — Y.Doc snapshots in backend/data/ydocs/
-  AI intent classification via Groq (debounced 1.5s)
+# Run specific test suites
+npm run test:auth
+npm run test:presence
+npm run test:cursor
 ```
 
-## Sharing a Canvas
+## 📚 Documentation
 
-1. Open `/editor` — a unique `roomId` is auto-generated
-2. Click **Share** — copies the URL with the `roomId`
-3. Anyone with the link joins the same live session
+- [Render Deployment Guide](./RENDER_DEPLOYMENT.md)
+- [Supabase Setup Guide](./SUPABASE_SETUP.md)
+- [Canvas Persistence Setup](./CANVAS_PERSISTENCE_SETUP.md)
+- [Backend README](./backend/README.md)
+- [Database Schema](./backend/src/db/schema.md)
 
-## RBAC
+## 🔒 Security Features
 
-| Role | Permissions |
-|---|---|
-| Lead | Everything — lock nodes, set ACLs, reset canvas |
-| Contributor | Create / update / delete nodes (subject to ACL) |
-| Viewer | Read only |
+- JWT-based authentication
+- Role-based access control (RBAC)
+- Rate limiting on API endpoints
+- CORS configuration
+- Input validation
+- SQL injection prevention (Prisma ORM)
+- WebSocket authentication
 
-## API Reference
+## 🤝 Contributing
 
-### Auth
-| Method | Path | Body |
-|---|---|---|
-| POST | `/api/auth/register` | `{ name, email, password, role? }` |
-| POST | `/api/auth/login` | `{ email, password }` |
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-### Canvas & WebSocket
-| | Path | Notes |
-|---|---|---|
-| GET | `/api/canvas/:roomId` | Replay events → current state |
-| POST | `/api/canvas/:roomId/reset` | Lead only |
-| GET | `/api/canvas/:roomId/export` | AI markdown summary |
-| WS | `/yjs?token=JWT&roomId=X` | Yjs CRDT binary sync |
-| WS | `/ws?token=JWT&roomId=X` | Presence + cursors |
+## 📝 License
 
-## Troubleshooting
+MIT License - see LICENSE file for details
 
-| Problem | Fix |
-|---|---|
-| DB connection fails | See `SUPABASE_SETUP.md` — use Session Pooler URL |
-| Prisma client missing | `cd backend && npm run prisma:generate` |
-| Port in use | Kill process on 4000/3000 and restart |
-| GROQ_API_KEY missing | AI falls back gracefully; get key at console.groq.com |
+## 🐛 Known Issues
+
+- Free tier Render services spin down after 15 minutes of inactivity
+- First request after spin-down may take 30-60 seconds
+- Local file storage is ephemeral on Render (use database for persistence)
+
+## 🔮 Roadmap
+
+- [ ] Real-time cursor tracking
+- [ ] Canvas templates
+- [ ] Export/import functionality
+- [ ] Mobile responsive design
+- [ ] Offline support
+- [ ] Advanced AI features
+- [ ] Team collaboration features
+
+## 📧 Support
+
+For issues and questions:
+- Open an issue on GitHub
+- Check existing documentation
+- Review closed issues for solutions
+
+## 🙏 Acknowledgments
+
+- Yjs for CRDT implementation
+- Supabase for database hosting
+- Render for deployment platform
+- Groq for AI capabilities
+
+---
+
+**Built with ❤️ for collaborative creativity**

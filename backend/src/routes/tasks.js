@@ -8,11 +8,21 @@ const { authenticateToken } = require('../middleware/auth');
 const { getSupabaseClientForToken } = require('../utils/supabase');
 
 // Get all tasks for a room
-router.get('/:roomId', authenticateToken, async (req, res) => {
+// Allow unauthenticated access - return empty array if no auth
+router.get('/:roomId', async (req, res) => {
   try {
     const { roomId } = req.params;
 
-    const client = getSupabaseClientForToken(req.accessToken);
+    // Try to get auth token, but don't require it
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+      // No auth - return empty tasks (guest users don't see tasks)
+      return res.json({ tasks: [] });
+    }
+
+    const client = getSupabaseClientForToken(token);
     if (!client) {
       return res.json({ tasks: [] });
     }

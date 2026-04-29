@@ -6,7 +6,10 @@ import { SyncManager } from '../yjs/syncManager';
 import type { CanvasNode } from '../../types/canvas';
 import { useAuth } from '../auth-context';
 
-let globalSyncManager: SyncManager | null = null;
+// Per-room singletons — survive React StrictMode double-mount
+const roomSyncManagers = new Map<string, SyncManager>();
+// Reference count per room so we only destroy when truly no consumers remain
+const roomRefCountMap = new Map<string, number>();
 
 export interface UseCanvasOptions {
   roomId: string;
@@ -40,94 +43,106 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
   const [status, setStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const syncManagerRef = useRef<SyncManager | null>(null);
 
-  // Initialize sync manager
+  // Initialize sync manager (per-room singleton) with ref counting
   useEffect(() => {
-    if (!globalSyncManager) {
-      globalSyncManager = new SyncManager();
+    if (!roomSyncManagers.has(roomId)) {
+      roomSyncManagers.set(roomId, new SyncManager());
     }
-    syncManagerRef.current = globalSyncManager;
+    const manager = roomSyncManagers.get(roomId)!;
+    syncManagerRef.current = manager;
+
+    // Increment ref count
+    roomRefCountMap.set(roomId, (roomRefCountMap.get(roomId) ?? 0) + 1);
 
     // Subscribe to changes
-    const unsubscribe = globalSyncManager.subscribe(() => {
-      if (globalSyncManager) {
-        const newNodes = globalSyncManager.getNodes();
-        console.log(`[useCanvas] Nodes updated, count: ${newNodes.length}`);
-        setNodes(newNodes);
-        setIsConnected(globalSyncManager.isConnected());
-        setIsSynced(globalSyncManager.isSynced());
-      }
+    const unsubscribe = manager.subscribe(() => {
+      const newNodes = manager.getNodes();
+      setNodes(newNodes);
+      setIsConnected(manager.isConnected());
+      setIsSynced(manager.isSynced());
     });
 
-    // Initial state
-    setNodes(globalSyncManager.getNodes());
+    // Sync current state immediately
+    setNodes(manager.getNodes());
+    setIsConnected(manager.isConnected());
+    setIsSynced(manager.isSynced());
+    if (manager.isConnected()) setStatus('connected');
 
     return () => {
       unsubscribe();
+
+      // Decrement ref count; only disconnect when no consumers remain
+      const count = (roomRefCountMap.get(roomId) ?? 1) - 1;
+      roomRefCountMap.set(roomId, count);
+
+      if (count <= 0) {
+        roomRefCountMap.delete(roomId);
+        // Don't destroy the SyncManager — keep Y.Doc state alive for fast re-entry
+        // Just disconnect the WebSocket
+        manager.disconnect();
+        roomSyncManagers.delete(roomId);
+      }
     };
-  }, []);
+  }, [roomId]);
 
   // Connect to backend
   const connect = useCallback(() => {
-    if (!syncManagerRef.current || !user) {
-      console.warn('[useCanvas] Cannot connect - missing syncManager or user');
+    const manager = syncManagerRef.current;
+    if (!manager) {
+      console.warn('[useCanvas] Cannot connect - missing syncManager');
       return;
     }
 
-    console.log(`[useCanvas] Initiating connection for user: ${user.id}`);
+    // Already connected or connecting — don't open a second connection
+    if (manager.isConnected()) {
+      setIsConnected(true);
+      setStatus('connected');
+      return;
+    }
 
-    // Try Supabase session first (fresh token), fall back to localStorage
-    const getToken = async (): Promise<string | null> => {
+    const getToken = async (): Promise<string> => {
       try {
-        // Dynamically import supabase to get fresh session token
         const { supabase } = await import('../supabase');
         const { data } = await supabase.auth.getSession();
         if (data?.session?.access_token) {
-          // Keep localStorage in sync
           localStorage.setItem('auth_token', data.session.access_token);
-          console.log('[useCanvas] Using Supabase session token');
           return data.session.access_token;
         }
       } catch {
-        // supabase not available, fall through to localStorage
+        // supabase not available
       }
       const token = localStorage.getItem('auth_token');
-      if (token) {
-        console.log('[useCanvas] Using localStorage token');
-      }
-      return token;
+      if (token) return token;
+      // No token — connect as guest (backend allows this)
+      console.warn('[useCanvas] No auth token — connecting as guest');
+      return '';
     };
 
     getToken().then(async (token) => {
-      if (!token) {
-        console.error('❌ [useCanvas] No auth token — canvas will work offline (no sync)');
-        console.error('❌ Please log in to enable real-time sync');
-        return;
-      }
-      
-      console.log(`[useCanvas] Token found, connecting to room: ${roomId}`);
-      
-      // Connect is now async to load initial state
-      await syncManagerRef.current?.connect(roomId, token, {
+      // Guard: check again after async token fetch
+      if (manager.isConnected()) return;
+
+      await manager.connect(roomId, token, {
         onSync: (synced) => {
-          console.log(`[useCanvas] Sync status changed: ${synced}`);
           setIsSynced(synced);
         },
         onStatus: (newStatus) => {
-          console.log(`[useCanvas] Connection status changed: ${newStatus}`);
           setStatus(newStatus);
           setIsConnected(newStatus === 'connected');
+          if (newStatus === 'connected') {
+            setNodes(manager.getNodes());
+          }
         },
         onError: (error) => {
           console.error('❌ [useCanvas] Connection error:', error.message);
         },
       });
     });
-  }, [roomId, user]);
+  }, [roomId]);
 
-  // Disconnect from backend
+  // Disconnect from backend (explicit user action)
   const disconnect = useCallback(() => {
-    if (!syncManagerRef.current) return;
-    syncManagerRef.current.disconnect();
+    syncManagerRef.current?.disconnect();
     setIsConnected(false);
     setIsSynced(false);
     setStatus('disconnected');
@@ -135,14 +150,10 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
 
   // Auto-connect on mount
   useEffect(() => {
-    if (autoConnect && user) {
+    if (autoConnect) {
       connect();
     }
-
-    return () => {
-      // Don't disconnect on unmount - keep connection alive for other components
-    };
-  }, [autoConnect, user, connect]);
+  }, [autoConnect, connect]);
 
   // Add a new node
   const addNode = useCallback((node: Omit<CanvasNode, 'id' | 'createdBy' | 'createdAt'>): string => {
@@ -150,66 +161,46 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
       console.error('[useCanvas] Cannot add node - syncManager not initialized');
       return '';
     }
-
     const nodeId = `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const fullNode: Omit<CanvasNode, 'id'> = {
       ...node,
       createdBy: user?.id || 'local',
       createdAt: new Date().toISOString(),
     };
-
-    console.log(`[useCanvas] Adding node:`, { nodeId, type: node.type, fullNode });
     syncManagerRef.current.setNode(nodeId, fullNode);
-    console.log(`[useCanvas] Node added to Yjs, current node count: ${syncManagerRef.current.getNodes().length}`);
     return nodeId;
   }, [user]);
 
-  // Update a node
   const updateNode = useCallback((nodeId: string, updates: Partial<Omit<CanvasNode, 'id'>>) => {
-    if (!syncManagerRef.current) return;
-    syncManagerRef.current.updateNode(nodeId, updates as Partial<CanvasNode>);
+    syncManagerRef.current?.updateNode(nodeId, updates as Partial<CanvasNode>);
   }, []);
 
-  // Delete a node
   const deleteNode = useCallback((nodeId: string) => {
-    if (!syncManagerRef.current) return;
-    syncManagerRef.current.deleteNode(nodeId);
+    syncManagerRef.current?.deleteNode(nodeId);
   }, []);
 
-  // Update node position
   const updateNodePosition = useCallback((nodeId: string, position: { x: number; y: number }) => {
-    if (!syncManagerRef.current) return;
-    syncManagerRef.current.updateNodePosition(nodeId, position);
+    syncManagerRef.current?.updateNodePosition(nodeId, position);
   }, []);
 
-  // Update node content
   const updateNodeContent = useCallback((nodeId: string, content: any) => {
-    if (!syncManagerRef.current) return;
-    syncManagerRef.current.updateNodeContent(nodeId, content);
+    syncManagerRef.current?.updateNodeContent(nodeId, content);
   }, []);
 
-  // Update node intent
   const updateNodeIntent = useCallback((nodeId: string, intent: CanvasNode['intent']) => {
-    if (!syncManagerRef.current) return;
-    syncManagerRef.current.updateNodeIntent(nodeId, intent);
+    syncManagerRef.current?.updateNodeIntent(nodeId, intent);
   }, []);
 
-  // Set node locked
   const setNodeLocked = useCallback((nodeId: string, locked: boolean) => {
-    if (!syncManagerRef.current) return;
-    syncManagerRef.current.setNodeLocked(nodeId, locked);
+    syncManagerRef.current?.setNodeLocked(nodeId, locked);
   }, []);
 
-  // Update task status
   const updateTaskStatus = useCallback((nodeId: string, status: CanvasNode['taskStatus']) => {
-    if (!syncManagerRef.current) return;
-    syncManagerRef.current.updateTaskStatus(nodeId, status);
+    syncManagerRef.current?.updateTaskStatus(nodeId, status);
   }, []);
 
-  // Get a specific node
   const getNode = useCallback((nodeId: string): CanvasNode | null => {
-    if (!syncManagerRef.current) return null;
-    return syncManagerRef.current.getNode(nodeId);
+    return syncManagerRef.current?.getNode(nodeId) ?? null;
   }, []);
 
   return {

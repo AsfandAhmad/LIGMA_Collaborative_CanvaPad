@@ -46,6 +46,9 @@ backend/prisma/migrations/
 # PM2
 .pm2/
 
+# Yjs documents (runtime data)
+backend/data/ydocs/*.bin
+
 # Temporary files
 *.tmp
 *.temp

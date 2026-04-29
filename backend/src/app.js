@@ -37,8 +37,12 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Health check
+// Health check endpoints
 app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
