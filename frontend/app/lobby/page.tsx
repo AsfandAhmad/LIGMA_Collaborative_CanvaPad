@@ -10,6 +10,7 @@ import { AppSidebar } from "@/components/ligma/AppSidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { demoActions } from "@/lib/demoStore";
 
 const members = [
   { n: "Maya Kane", role: "Lead", color: "bg-coral", initial: "MK" },
@@ -23,14 +24,22 @@ type Tab = typeof tabs[number];
 
 export default function Lobby() {
   const searchParams = useSearchParams();
-  const roomId = searchParams?.get('roomId') || 'sprint-44-kickoff'; // Default room for demo
-  
+  const roomId = searchParams?.get('roomId') || '';
+  const sessionName = searchParams?.get('name') ? decodeURIComponent(searchParams.get('name')!) : (roomId ? roomId : 'New Session');
+
   const [tab, setTab] = useState<Tab>("Overview");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
 
+  // Mark session as recently opened when lobby loads
+  useEffect(() => {
+    if (roomId) {
+      demoActions.touchSession(roomId);
+    }
+  }, [roomId]);
+
   const share = () => {
-    const url = `${window.location.origin}/lobby?roomId=${roomId}`;
+    const url = `${window.location.origin}/lobby?roomId=${roomId}&name=${encodeURIComponent(sessionName)}`;
     navigator.clipboard?.writeText(url).catch(()=>{});
     toast({ title: "Share link copied", description: url });
   };
@@ -49,15 +58,17 @@ export default function Lobby() {
         <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-xl border-b border-foreground/10">
           <div className="px-8 py-4 flex items-center gap-3">
             <Button asChild variant="ghost" size="icon"><Link href="/dashboard"><ArrowLeft className="h-4 w-4"/></Link></Button>
-            <div className="font-mono text-xs text-muted-foreground">orbital / sprint-44 /</div>
-            <div className="font-bold">Sprint 44 — kickoff</div>
+            <div className="font-mono text-xs text-muted-foreground">sessions /</div>
+            <div className="font-bold truncate max-w-xs">{sessionName}</div>
             <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-success/15 text-success px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider">
-              <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" /> live · 3 in room
+              <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" /> live · 1 in room
             </span>
             <div className="ml-auto flex items-center gap-2">
               <Button variant="ghost" size="sm" onClick={share}>Share</Button>
               <Button variant="outline" size="sm" onClick={() => setInviteOpen(true)}><UserPlus className="h-3.5 w-3.5"/> Invite</Button>
-              <Button asChild variant="paper" size="sm"><Link href={`/editor?roomId=${roomId}`}><Play className="h-3.5 w-3.5"/> Enter session</Link></Button>
+              <Button asChild variant="paper" size="sm">
+                <Link href={`/editor?roomId=${roomId}`}><Play className="h-3.5 w-3.5"/> Enter session</Link>
+              </Button>
             </div>
           </div>
           <div className="px-8 flex items-center gap-1">
@@ -86,15 +97,15 @@ export default function Lobby() {
 
             <div className="rounded-2xl border-2 border-foreground/15 bg-card p-6">
               <div className="zine-label mb-2">§ session brief</div>
-              <h2 className="text-2xl font-bold mb-3">Kick off Sprint 44</h2>
+              <h2 className="text-2xl font-bold mb-3">{sessionName}</h2>
               <p className="text-muted-foreground leading-relaxed">
-                Align on the top three execution risks for the upcoming sprint, lock the architecture decisions made last Friday, and convert open questions into either spikes or deferred items. Output: an actionable backlog by EOD.
+                A fresh canvas is ready. Start adding sticky notes, invite collaborators, and let the AI extract action items as you work.
               </p>
               <div className="mt-5 grid grid-cols-3 gap-4">
                 {[
-                  { l: "Started", v: "2:14 PM", icon: Clock },
-                  { l: "Tasks extracted", v: "14", icon: ListChecks },
-                  { l: "Locked nodes", v: "3", icon: Lock },
+                  { l: "Started", v: "just now", icon: Clock },
+                  { l: "Tasks extracted", v: "0", icon: ListChecks },
+                  { l: "Locked nodes", v: "0", icon: Lock },
                 ].map(s => (
                   <div key={s.l} className="rounded-lg border border-foreground/10 p-3">
                     <div className="flex items-center gap-2 text-muted-foreground text-xs"><s.icon className="h-3.5 w-3.5"/> {s.l}</div>
@@ -107,7 +118,7 @@ export default function Lobby() {
             <div className="rounded-2xl border-2 border-foreground/15 bg-card p-6">
               <div className="flex items-center gap-2 mb-3"><Sparkles className="h-4 w-4 text-primary"/> <h3 className="font-bold">AI agenda suggestions</h3></div>
               <ul className="space-y-2">
-                {["Review last session's open questions", "Lock the LISTEN/NOTIFY decision before continuing", "Assign owners to the 4 unassigned action items"].map(s => (
+                {["Set a clear goal for this session", "Invite your collaborators to join", "Start adding sticky notes to the canvas"].map(s => (
                   <li key={s} className="flex items-start gap-2 text-sm">
                     <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary" /> {s}
                   </li>
@@ -138,17 +149,10 @@ export default function Lobby() {
             <div className="rounded-2xl border-2 border-foreground/15 bg-card p-5">
               <h3 className="font-bold flex items-center gap-2 mb-3"><Activity className="h-4 w-4"/> Recent activity</h3>
               <ul className="space-y-3 text-sm">
-                {[
-                  { who: "Jin", act: "locked “LISTEN/NOTIFY”", t: "2m" },
-                  { who: "AI", act: "extracted 4 new tasks", t: "5m" },
-                  { who: "Sam", act: "added 7 sticky notes", t: "12m" },
-                  { who: "Maya", act: "started the session", t: "25m" },
-                ].map((a, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="font-mono text-[10px] text-muted-foreground mt-1 w-8">{a.t}</span>
-                    <span><span className="font-medium">{a.who}</span> <span className="text-muted-foreground">{a.act}</span></span>
-                  </li>
-                ))}
+                <li className="flex items-start gap-2">
+                  <span className="font-mono text-[10px] text-muted-foreground mt-1 w-8">now</span>
+                  <span><span className="font-medium">You</span> <span className="text-muted-foreground">created this session</span></span>
+                </li>
               </ul>
             </div>
           </aside>
@@ -159,20 +163,8 @@ export default function Lobby() {
           <div className="px-8 py-8 max-w-3xl">
             <div className="zine-label mb-1">§ tasks</div>
             <h2 className="text-xl font-bold mb-4">Backlog from this session</h2>
-            <div className="rounded-2xl border-2 border-foreground/15 bg-card divide-y divide-border">
-              {[
-                { t: "Wire LISTEN/NOTIFY in canvas client", who: "Sam", due: "Tomorrow" },
-                { t: "Lock decision nodes for review", who: "Maya", due: "Today" },
-                { t: "Draft pricing copy v2", who: "Lia", due: "Fri" },
-                { t: "Schedule design crit", who: "Jin", due: "Mon" },
-              ].map((r, i) => (
-                <div key={i} className="px-4 py-3 flex items-center gap-3 text-sm">
-                  <span className="h-2 w-2 rounded-full bg-warning" />
-                  <span className="flex-1">{r.t}</span>
-                  <span className="font-mono text-xs text-muted-foreground">@{r.who.toLowerCase()}</span>
-                  <span className="font-mono text-xs">{r.due}</span>
-                </div>
-              ))}
+            <div className="rounded-2xl border-2 border-dashed border-foreground/20 bg-card p-12 text-center text-sm text-muted-foreground">
+              No tasks yet — enter the session and start capturing action items on the canvas.
             </div>
           </div>
         )}
@@ -206,17 +198,10 @@ export default function Lobby() {
             <div className="zine-label mb-1">§ activity</div>
             <h2 className="text-xl font-bold mb-4">Session timeline</h2>
             <div className="rounded-2xl border-2 border-foreground/15 bg-card p-5 space-y-3 text-sm">
-              {[
-                { who: "Jin", act: "locked “LISTEN/NOTIFY”", t: "2m" },
-                { who: "AI", act: "extracted 4 new tasks", t: "5m" },
-                { who: "Sam", act: "added 7 sticky notes", t: "12m" },
-                { who: "Maya", act: "started the session", t: "25m" },
-              ].map((a, i) => (
-                <div key={i} className="flex items-start gap-3 border-b border-border last:border-0 pb-3 last:pb-0">
-                  <span className="font-mono text-[10px] text-muted-foreground mt-1 w-10">{a.t}</span>
-                  <span><span className="font-medium">{a.who}</span> <span className="text-muted-foreground">{a.act}</span></span>
-                </div>
-              ))}
+              <div className="flex items-start gap-3">
+                <span className="font-mono text-[10px] text-muted-foreground mt-1 w-10">now</span>
+                <span><span className="font-medium">You</span> <span className="text-muted-foreground">created this session</span></span>
+              </div>
             </div>
           </div>
         )}
@@ -228,11 +213,11 @@ export default function Lobby() {
             <div className="rounded-2xl border-2 border-foreground/15 bg-card p-5 space-y-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Session name</label>
-                <Input defaultValue="Sprint 44 — kickoff" />
+                <Input defaultValue={sessionName} />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Folder</label>
-                <Input defaultValue="Sprint 44" />
+                <label className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Room ID</label>
+                <Input defaultValue={roomId} readOnly className="font-mono text-xs text-muted-foreground" />
               </div>
               <div className="flex justify-end gap-2">
                 <Button variant="ghost">Cancel</Button>
@@ -246,7 +231,7 @@ export default function Lobby() {
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Invite to Sprint 44 — kickoff</DialogTitle>
+            <DialogTitle>Invite to {sessionName}</DialogTitle>
             <DialogDescription>Add a teammate by email. They'll join as a Contributor.</DialogDescription>
           </DialogHeader>
           <Input type="email" placeholder="teammate@studio.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} onKeyDown={e => { if (e.key === "Enter") sendInvite(); }}/>

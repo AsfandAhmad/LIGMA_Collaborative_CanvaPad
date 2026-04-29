@@ -156,18 +156,27 @@ export default function Settings() {
                 ) : (
                   <>
                     <div className="flex items-center gap-4">
-                      <div className="h-16 w-16 rounded-full bg-gradient-blueprint flex items-center justify-center font-bold text-primary-foreground text-xl">
-                        {initials}
+                      <div className="h-16 w-16 rounded-full overflow-hidden bg-gradient-blueprint flex items-center justify-center font-bold text-primary-foreground text-xl ring-2 ring-foreground/10">
+                        {(user as any)?.avatar_url ? (
+                          <img src={(user as any).avatar_url} alt={user.name} className="h-full w-full object-cover" />
+                        ) : (
+                          <span>{initials}</span>
+                        )}
                       </div>
-                      <Button
-                        variant="outline"
-                        onClick={() => toast({
-                          title: "Avatar upload",
-                          description: "Connect Cloud to enable image uploads.",
-                        })}
-                      >
-                        Change avatar
-                      </Button>
+                      <div className="space-y-1">
+                        <Button
+                          variant="outline"
+                          onClick={() => toast({
+                            title: "Avatar upload",
+                            description: "Connect Cloud to enable image uploads.",
+                          })}
+                        >
+                          Change avatar
+                        </Button>
+                        {(user as any)?.avatar_url && (
+                          <p className="text-xs text-muted-foreground font-mono">Using Google profile picture</p>
+                        )}
+                      </div>
                     </div>
                     <div className="grid sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">

@@ -201,6 +201,10 @@ export const demoActions = {
     emit();
     return session;
   },
+  touchSession(id: string) {
+    state = { ...state, sessions: state.sessions.map(s => s.id === id ? { ...s, updatedAt: Date.now(), time: "just now" } : s) };
+    emit();
+  },
   reset() {
     state = defaultState;
     emit();

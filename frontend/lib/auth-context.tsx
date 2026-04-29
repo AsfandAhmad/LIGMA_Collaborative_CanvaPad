@@ -10,6 +10,7 @@ interface User {
   email: string;
   name: string;
   role: string;
+  avatar_url?: string;
 }
 
 interface AuthContextType {
@@ -28,7 +29,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
-  // Load user from localStorage on mount
   useEffect(() => {
     const savedUser = authApi.getUser();
     if (savedUser) {
@@ -38,76 +38,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
-    try {
-      const response: AuthResponse = await authApi.login({ email, password });
-      if (!response.token) {
-        throw new Error('Login did not return an access token');
-      }
-      authApi.saveAuth(response.token, response.user);
-      setUser(response.user);
-      toast({
-        title: 'Welcome back!',
-        description: `Signed in as ${response.user.email}`,
-      });
-      router.push('/dashboard');
-    } catch (error: any) {
-      toast({
-        title: 'Login failed',
-        description: error.message || 'Invalid credentials',
-        variant: 'destructive',
-      });
-      throw error;
-    }
+    const response: AuthResponse = await authApi.login({ email, password });
+    if (!response.token) throw new Error('Login did not return an access token');
+    authApi.saveAuth(response.token, response.user);
+    setUser(response.user);
+    toast({ title: 'Welcome back!', description: `Signed in as ${response.user.email}` });
+    router.push('/dashboard');
   };
 
   const register = async (email: string, password: string, name: string) => {
-    try {
-      const response: AuthResponse = await authApi.register({ email, password, name });
-      if (!response.token) {
-        toast({
-          title: 'Check your email',
-          description: response.message || 'Confirm your account before signing in.',
-        });
-        return;
-      }
-      authApi.saveAuth(response.token, response.user);
-      setUser(response.user);
-      toast({
-        title: 'Account created!',
-        description: `Welcome, ${response.user.name}`,
-      });
-      router.push('/dashboard');
-    } catch (error: any) {
-      toast({
-        title: 'Registration failed',
-        description: error.message || 'Could not create account',
-        variant: 'destructive',
-      });
-      throw error;
+    const response: AuthResponse = await authApi.register({ email, password, name });
+    if (!response.token) {
+      toast({ title: 'Check your email', description: response.message || 'Confirm your account before signing in.' });
+      return;
     }
+    authApi.saveAuth(response.token, response.user);
+    setUser(response.user);
+    toast({ title: 'Account created!', description: `Welcome, ${response.user.name}` });
+    router.push('/dashboard');
   };
 
   const logout = async () => {
     await authApi.logout();
     setUser(null);
-    toast({
-      title: 'Signed out',
-      description: 'You have been logged out',
-    });
-    router.push('/auth');
+    router.push('/');
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isLoading,
-        isAuthenticated: !!user,
-        login,
-        register,
-        logout,
-      }}
-    >
+    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -115,8 +73,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 }

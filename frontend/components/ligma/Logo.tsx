@@ -1,8 +1,14 @@
+"use client";
+
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
 
 export function Logo({ className, mark = false }: { className?: string; mark?: boolean }) {
+  const { isAuthenticated } = useAuth();
+  const href = isAuthenticated ? "/recent" : "/";
+
   return (
-    <a href="/" className={cn("inline-flex items-center gap-2 group", className)}>
+    <a href={href} className={cn("inline-flex items-center gap-2 group", className)}>
       <span className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg bg-foreground text-background shadow-[2px_2px_0_hsl(var(--primary))]">
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
           <path d="M4 4 L4 20 L12 20" />

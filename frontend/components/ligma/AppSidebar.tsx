@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Home, Clock, Share2, LayoutTemplate, FolderKanban, Trash2, Settings, Plus, Sparkles } from "lucide-react";
+import { Clock, Share2, LayoutTemplate, FolderKanban, Trash2, Settings, Plus, Sparkles } from "lucide-react";
 import { Logo } from "./Logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,6 @@ import { useAuth } from "@/lib/auth-context";
 import { toast } from "@/hooks/use-toast";
 
 const items = [
-  { icon: Home, label: "Home", to: "/dashboard" },
   { icon: Clock, label: "Recent", to: "/recent" },
   { icon: Share2, label: "Shared with me", to: "/shared" },
   { icon: LayoutTemplate, label: "Templates", to: "/templates" },
@@ -31,13 +30,13 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const demoUser = useDemo(s => s.user);
-  const { user: authUser } = useAuth();
+  const { user: authUser, isLoading: authLoading } = useAuth();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
-  // Only use real user data after mount to avoid hydration mismatch
-  const user = mounted ? (authUser || demoUser) : null;
+  // Only fall back to demoUser once auth has finished loading and confirmed no real user
+  const user = mounted ? (authUser ?? (!authLoading ? demoUser : null)) : null;
   const initials = user?.name ? user.name.split(" ").slice(0, 2).map((p: string) => p[0]).join("").toUpperCase() : "?";
   const displayName = user?.name || "Guest";
   const displayRole = user?.role || "viewer";
@@ -50,8 +49,12 @@ export function AppSidebar() {
 
       <div className="px-3 py-4">
         <button onClick={() => router.push("/settings")} className="w-full flex items-center gap-3 rounded-lg p-2 hover:bg-sidebar-accent transition-colors text-left">
-          <div className="h-9 w-9 rounded-full bg-gradient-blueprint flex items-center justify-center font-bold text-primary-foreground text-sm">
-            {initials}
+          <div className="h-9 w-9 rounded-full overflow-hidden bg-gradient-blueprint flex items-center justify-center font-bold text-primary-foreground text-sm shrink-0">
+            {(authUser as any)?.avatar_url && mounted && !authLoading ? (
+              <img src={(authUser as any).avatar_url} alt={displayName} className="h-full w-full object-cover" />
+            ) : (
+              <span>{initials}</span>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium truncate">{displayName}</div>

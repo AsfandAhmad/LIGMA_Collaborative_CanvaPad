@@ -6,6 +6,7 @@
 const WebSocket = require('ws');
 const { AuthenticationError } = require('./errors');
 const { getUserForToken } = require('./supabase');
+const shareService = require('../services/shareService');
 
 /**
  * Parse and validate WebSocket connection query parameters
@@ -20,24 +21,59 @@ async function parseWsQuery(req) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const token = url.searchParams.get('token');
   const roomId = url.searchParams.get('roomId');
+  const shareToken = url.searchParams.get('shareToken');
 
-  if (!token) {
-    throw new AuthenticationError('Token required');
-  }
-  
   if (!roomId) {
     throw new AuthenticationError('RoomId required');
   }
 
-  const user = await getUserForToken(token);
+  // Path 1: share token (anyone-with-link access — no JWT needed)
+  if (shareToken && !token) {
+    const shareAccess = await shareService.validateShareToken(shareToken);
+    if (!shareAccess) {
+      throw new AuthenticationError('Invalid or expired share link');
+    }
+    if (shareAccess.roomId !== roomId) {
+      throw new AuthenticationError('Share token does not match room');
+    }
+    // Guest user — no real user account required
+    return {
+      token: shareToken,
+      roomId,
+      isGuest: true,
+      shareRole: shareAccess.role,
+      user: {
+        id: `guest-${shareToken.slice(0, 8)}`,
+        email: 'guest@share.link',
+        role: shareAccess.role,
+        name: 'Guest',
+      },
+    };
+  }
 
+  // Path 2: normal JWT auth
+  if (!token) {
+    throw new AuthenticationError('Token required');
+  }
+
+  const user = await getUserForToken(token);
   if (!user) {
     throw new AuthenticationError('Invalid or expired token');
+  }
+
+  // Path 2b: JWT user accessing via share token (restricted invite check)
+  if (shareToken) {
+    const invite = await shareService.checkEmailInvite(roomId, user.email, user.id);
+    if (invite) {
+      // Auto-accept invite on first WS connect
+      await shareService.acceptInvite(roomId, user.email, user.id).catch(() => {});
+    }
   }
 
   return {
     token,
     roomId,
+    isGuest: false,
     user: {
       id: user.id,
       email: user.email,

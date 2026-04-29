@@ -1,5 +1,6 @@
 // canMutate(userId, nodeId, action, accessToken)
 //   → fetch workspace role via RLS
+//   → fallback: check room_share_invites for cross-workspace shared access
 //   → check node permissions with role_required + permission
 //   → return true/false
 //
@@ -7,7 +8,7 @@
 // Viewers can NEVER mutate — enforced HERE on server
 // This is called in wsHandler BEFORE applying any mutation
 
-const { getSupabaseClientForToken } = require('../utils/supabase');
+const { getSupabaseClientForToken, getSupabaseServiceClient } = require('../utils/supabase');
 
 const ROLE_RANK = {
   viewer: 1,
@@ -53,7 +54,7 @@ function requiredPermissionForAction(action) {
   return 'edit';
 }
 
-async function getWorkspaceRoleForRoom(userId, roomId, accessToken) {
+async function getWorkspaceRoleForRoom(userId, roomId, accessToken, userEmail) {
   const client = getSupabaseClientForToken(accessToken);
   if (!client) return null;
 
@@ -67,18 +68,47 @@ async function getWorkspaceRoleForRoom(userId, roomId, accessToken) {
     return null;
   }
 
-  const { data: membership, error: membershipError } = await client
+  const { data: membership } = await client
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', room.workspace_id)
     .eq('user_id', userId)
     .maybeSingle();
 
-  if (membershipError || !membership?.role) {
-    return null;
+  if (membership?.role) {
+    return normalizeRole(membership.role);
   }
 
-  return normalizeRole(membership.role);
+  // Fallback: check if user has a share invite for this room (cross-workspace access)
+  const serviceClient = getSupabaseServiceClient();
+  if (serviceClient && userEmail) {
+    const { data: invite } = await serviceClient
+      .from('room_share_invites')
+      .select('role, status')
+      .eq('room_id', roomId)
+      .or(`user_id.eq.${userId},email.eq.${userEmail.toLowerCase()}`)
+      .in('status', ['pending', 'accepted'])
+      .maybeSingle();
+
+    if (invite?.role) {
+      return normalizeRole(invite.role);
+    }
+  }
+
+  // Fallback: check anyone_with_link share
+  if (serviceClient) {
+    const { data: share } = await serviceClient
+      .from('room_shares')
+      .select('access_type, link_role')
+      .eq('room_id', roomId)
+      .maybeSingle();
+
+    if (share?.access_type === 'anyone_with_link') {
+      return normalizeRole(share.link_role);
+    }
+  }
+
+  return null;
 }
 
 async function getWorkspaceRoleForWorkspace(userId, workspaceId, accessToken) {

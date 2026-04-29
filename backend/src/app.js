@@ -13,6 +13,7 @@ const nodesRoutes = require('./routes/nodes');
 const tasksRoutes = require('./routes/tasks');
 const roomsRoutes = require('./routes/rooms');
 const workspacesRoutes = require('./routes/workspaces');
+const sharingRoutes = require('./routes/sharing');
 const { AppError } = require('./utils/errors');
 
 const app = express();
@@ -49,6 +50,8 @@ app.use('/api/canvas', canvasRoutes);
 app.use('/api/nodes', nodesRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/rooms', roomsRoutes);
+app.use('/api/rooms', sharingRoutes);
+app.use('/api/share', sharingRoutes);
 
 // 404 handler
 app.use((req, res) => {

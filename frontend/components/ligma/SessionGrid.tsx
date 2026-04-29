@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Clock, Users, Star, MoreHorizontal, Trash2, RotateCcw, Share2 } from "lucide-react";
@@ -9,6 +10,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/hooks/use-toast";
+import { ShareModal } from "@/components/ligma/ShareModal";
 
 type Variant = "default" | "trash";
 
@@ -32,13 +34,16 @@ export function SessionGrid({
   empty,
   variant = "default",
   interactive = true,
+  view = "grid",
 }: {
   sessions: SessionItem[];
   empty?: React.ReactNode;
   variant?: Variant;
   interactive?: boolean;
+  view?: "grid" | "list";
 }) {
   const router = useRouter();
+  const [shareTarget, setShareTarget] = useState<{ id: string; name: string } | null>(null);
 
   if (sessions.length === 0) {
     return (
@@ -48,15 +53,101 @@ export function SessionGrid({
     );
   }
 
+  const handleOpen = (s: SessionItem) => {
+    if (variant !== "default") return;
+    demoActions.touchSession(s.id);
+    router.push(`/lobby?roomId=${s.id}&name=${encodeURIComponent(s.name)}`);
+  };
+
+  const menu = (s: SessionItem) => interactive && (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon-sm" className="h-7 w-7 bg-background/80 backdrop-blur shrink-0"><MoreHorizontal className="h-3.5 w-3.5"/></Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {variant === "default" ? (
+          <>
+            <DropdownMenuItem onClick={() => { demoActions.toggleStar(s.id); toast({ title: s.starred ? "Removed from favorites" : "Starred" }); }}>
+              <Star className="h-3.5 w-3.5"/> {s.starred ? "Unstar" : "Star"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShareTarget({ id: s.id, name: s.name })}>
+              <Share2 className="h-3.5 w-3.5"/> Share
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { demoActions.trashSession(s.id); toast({ title: "Moved to trash", description: s.name }); }}>
+              <Trash2 className="h-3.5 w-3.5"/> Move to trash
+            </DropdownMenuItem>
+          </>
+        ) : (
+          <>
+            <DropdownMenuItem onClick={() => { demoActions.restoreSession(s.id); toast({ title: "Restored", description: s.name }); }}>
+              <RotateCcw className="h-3.5 w-3.5"/> Restore
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { demoActions.deleteSessionForever(s.id); toast({ title: "Deleted forever" }); }}>
+              <Trash2 className="h-3.5 w-3.5"/> Delete forever
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  if (view === "list") {
+    return (
+      <>
+      <div className="rounded-2xl border-2 border-foreground/15 bg-card divide-y divide-foreground/10">
+        {sessions.map((s) => (
+          <div key={s.id} className="group flex items-center gap-4 px-4 py-3 hover:bg-muted/40 transition-colors">
+            <button
+              onClick={() => handleOpen(s)}
+              disabled={variant === "trash"}
+              className="flex items-center gap-4 flex-1 min-w-0 text-left"
+            >
+              <div className={`h-10 w-14 rounded-lg ${s.thumb} shrink-0 border border-foreground/10 relative overflow-hidden ${variant === "trash" ? "opacity-50 grayscale" : ""}`}>
+                <div className="absolute inset-0 bg-blueprint-grid opacity-30" />
+                {s.pulse && variant === "default" && (
+                  <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-sm truncate group-hover:text-primary transition-colors">{s.name}</h3>
+                  {s.starred && <Star className="h-3 w-3 text-warning fill-warning shrink-0" />}
+                </div>
+                <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <span className={`h-1.5 w-1.5 rounded-sm ${s.folderColor}`} />
+                    {s.folder}
+                  </span>
+                  <span className="flex items-center gap-1"><Clock className="h-3 w-3"/> {s.time}</span>
+                  {s.live > 0 && <span className="flex items-center gap-1 text-success"><Users className="h-3 w-3"/> {s.live} live</span>}
+                  <span>{s.tasks} tasks</span>
+                </div>
+              </div>
+            </button>
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+              {menu(s)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {shareTarget && (
+        <ShareModal
+          open={!!shareTarget}
+          onClose={() => setShareTarget(null)}
+          roomId={shareTarget.id}
+          roomName={shareTarget.name}
+        />
+      )}
+      </>
+    );
+  }
+
   return (
+    <>
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      {sessions.map((s) => (
-        <div key={s.id} className="group rounded-2xl border-2 border-foreground/15 bg-card p-3 hover:border-foreground hover:-translate-y-0.5 transition-all relative">
-          <button
-            onClick={() => variant === "default" ? router.push("/lobby") : null}
-            className="block w-full text-left"
-            disabled={variant === "trash"}
-          >
+      {sessions.map((s) => (        <div key={s.id} className="group rounded-2xl border-2 border-foreground/15 bg-card p-3 hover:border-foreground hover:-translate-y-0.5 transition-all relative">
+          <button onClick={() => handleOpen(s)} className="block w-full text-left" disabled={variant === "trash"}>
             <div className={`relative aspect-[16/10] rounded-xl ${s.thumb} overflow-hidden border border-foreground/10 ${variant === "trash" ? "opacity-60 grayscale" : ""}`}>
               <div className="absolute inset-0 bg-blueprint-grid opacity-30" />
               <div className="absolute top-3 left-3 h-8 w-12 bg-card rounded shadow-sm rotate-[-3deg]" />
@@ -78,52 +169,29 @@ export function SessionGrid({
               <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1"><Clock className="h-3 w-3"/> {s.time}</span>
                 <span className="flex items-center gap-2">
-                  {s.live > 0 && (
-                    <span className="flex items-center gap-1 text-success"><Users className="h-3 w-3"/> {s.live}</span>
-                  )}
+                  {s.live > 0 && <span className="flex items-center gap-1 text-success"><Users className="h-3 w-3"/> {s.live}</span>}
                   <span>{s.tasks} tasks</span>
                 </span>
               </div>
             </div>
           </button>
-
           {interactive && (
             <div className="absolute top-5 right-5 opacity-0 group-hover:opacity-100 transition-opacity">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon-sm" className="h-7 w-7 bg-background/80 backdrop-blur"><MoreHorizontal className="h-3.5 w-3.5"/></Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {variant === "default" ? (
-                    <>
-                      <DropdownMenuItem onClick={() => { demoActions.toggleStar(s.id); toast({ title: s.starred ? "Removed from favorites" : "Starred" }); }}>
-                        <Star className="h-3.5 w-3.5"/> {s.starred ? "Unstar" : "Star"}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { navigator.clipboard?.writeText(`https://ligma.app/s/${s.id}`).catch(()=>{}); toast({ title: "Link copied", description: s.name }); }}>
-                        <Share2 className="h-3.5 w-3.5"/> Copy share link
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { demoActions.trashSession(s.id); toast({ title: "Moved to trash", description: s.name }); }}>
-                        <Trash2 className="h-3.5 w-3.5"/> Move to trash
-                      </DropdownMenuItem>
-                    </>
-                  ) : (
-                    <>
-                      <DropdownMenuItem onClick={() => { demoActions.restoreSession(s.id); toast({ title: "Restored", description: s.name }); }}>
-                        <RotateCcw className="h-3.5 w-3.5"/> Restore
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { demoActions.deleteSessionForever(s.id); toast({ title: "Deleted forever" }); }}>
-                        <Trash2 className="h-3.5 w-3.5"/> Delete forever
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {menu(s)}
             </div>
           )}
         </div>
       ))}
     </div>
+
+    {shareTarget && (
+      <ShareModal
+        open={!!shareTarget}
+        onClose={() => setShareTarget(null)}
+        roomId={shareTarget.id}
+        roomName={shareTarget.name}
+      />
+    )}
+  </>
   );
 }
-
-

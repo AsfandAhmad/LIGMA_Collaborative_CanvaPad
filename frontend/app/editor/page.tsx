@@ -18,6 +18,7 @@ import { CanvasWrapper } from "@/components/canvas/CanvasWrapper";
 import { usePresence } from "@/lib/hooks/usePresence";
 import { useTasks } from "@/lib/hooks/useTasks";
 import { useAuth } from "@/lib/auth-context";
+import { ShareModal } from "@/components/ligma/ShareModal";
 
 type Intent = "action" | "decision" | "question" | "reference";
 type Note = {
@@ -108,6 +109,7 @@ function EditorContent() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode, setMode] = useState<"canvas" | "split" | "review">("split");
+  const [shareOpen, setShareOpen] = useState(false);
 
   // Convert canvas nodes to Note format (for task board only)
   const notes: Note[] = canvasNodes.filter((n: any) => n.type === 'sticky').map((node: any) => ({
@@ -174,11 +176,9 @@ function EditorContent() {
           ))}
         </div>
         <Button variant="ghost" size="icon-sm" onClick={() => toast({ title: "Replay history", description: "Scrub the timeline at the bottom of the canvas." })}><History className="h-4 w-4"/></Button>
-        <Button variant="ghost" size="sm" onClick={() => {
-          const shareUrl = `${window.location.origin}/editor?roomId=${roomId}`;
-          navigator.clipboard?.writeText(shareUrl).catch(()=>{});
-          toast({ title: "Share link copied", description: shareUrl });
-        }}><Share2 className="h-3.5 w-3.5"/> Share</Button>
+        <Button variant="ghost" size="sm" onClick={() => setShareOpen(true)}>
+          <Share2 className="h-3.5 w-3.5"/> Share
+        </Button>
         <Button variant="paper" size="sm" onClick={() => toast({ title: "Export started", description: "Your PDF will download shortly." })}><Download className="h-3.5 w-3.5"/> Export</Button>
       </header>
 
@@ -346,6 +346,15 @@ function EditorContent() {
         </aside>
       </div>
     </div>
+
+    {shareOpen && (
+      <ShareModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        roomId={roomId}
+        roomName="Sprint 44 — kickoff"
+      />
+    )}
   );
 }
 

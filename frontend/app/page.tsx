@@ -1,12 +1,28 @@
-import Link from "next/link";
+"use client";
+
+import { useState } from "react";
 import { Sparkles, Users, Infinity as InfIcon, ListChecks, Lock, History, Play, ArrowRight, Star } from "lucide-react";
 import { Navbar } from "@/components/ligma/Navbar";
 import { Footer } from "@/components/ligma/Footer";
 import { HeroMockup } from "@/components/ligma/HeroMockup";
 import { ScribbleArrow, StarBurst, CornerStamp } from "@/components/ligma/Doodles";
+import { AuthModal } from "@/components/ligma/AuthModal";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth-context";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "signup">("signup");
+  const { isAuthenticated } = useAuth();
+  const router = useRouter();
+
+  const openSignup = () => {
+    if (isAuthenticated) { router.push("/dashboard"); return; }
+    setAuthMode("signup");
+    setAuthOpen(true);
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
       <Navbar />
@@ -31,7 +47,9 @@ export default function Home() {
                 A collaborative canvas that turns ideas, decisions, and questions into a structured task board — in real time, with the team you already have.
               </p>
               <div className="flex flex-wrap items-center gap-3">
-                <Button asChild variant="paper" size="xl"><Link href="/dashboard">Start free <ArrowRight className="h-4 w-4"/></Link></Button>
+                <Button variant="paper" size="xl" onClick={openSignup}>
+                  Start free <ArrowRight className="h-4 w-4"/>
+                </Button>
                 <Button variant="ghost" size="xl"><Play className="h-4 w-4" /> Watch 90s demo</Button>
               </div>
 
@@ -126,7 +144,7 @@ export default function Home() {
               { n: "03", t: "Execute", d: "The task board auto-syncs. Click a card to leap to the original note. Ship.", color: "bg-sticky-mint" },
             ].map((s, i) => (
               <div key={i} className="relative">
-                <div className={`${s.color} text-foreground rounded-xl border-2 border-background p-6 shadow-sticky rotate-[${i%2===0?-1:1}deg]`} style={{transform: `rotate(${i%2===0?-1:1}deg)`}}>
+                <div className={`${s.color} text-foreground rounded-xl border-2 border-background p-6 shadow-sticky`} style={{transform: `rotate(${i%2===0?-1:1}deg)`}}>
                   <div className="font-mono text-xs mb-2">STEP {s.n}</div>
                   <h3 className="text-2xl font-bold mb-2">{s.t}</h3>
                   <p className="text-sm leading-relaxed">{s.d}</p>
@@ -186,9 +204,9 @@ export default function Home() {
           </div>
           <div className="grid md:grid-cols-3 gap-5 max-w-5xl mx-auto">
             {[
-              { name: "Free", price: "$0", tag: "for the curious", features: ["Up to 3 sessions", "5 collaborators", "Basic AI extraction", "7-day replay"], cta: "Start free", variant: "outline" as const },
-              { name: "Pro", price: "$12", tag: "the sweet spot", features: ["Unlimited sessions", "20 collaborators", "Full AI + summaries", "Unlimited replay", "Node permissions"], cta: "Start Pro trial", variant: "paper" as const, featured: true },
-              { name: "Team", price: "$29", tag: "for the org", features: ["Everything in Pro", "Unlimited seats", "SSO + audit log", "Workspace roles", "Priority support"], cta: "Talk to us", variant: "outline" as const },
+              { name: "Free", price: "$0", tag: "for the curious", features: ["Up to 3 sessions", "5 collaborators", "Basic AI extraction", "7-day replay"], cta: "Start free", featured: false },
+              { name: "Pro", price: "$12", tag: "the sweet spot", features: ["Unlimited sessions", "20 collaborators", "Full AI + summaries", "Unlimited replay", "Node permissions"], cta: "Start Pro trial", featured: true },
+              { name: "Team", price: "$29", tag: "for the org", features: ["Everything in Pro", "Unlimited seats", "SSO + audit log", "Workspace roles", "Priority support"], cta: "Talk to us", featured: false },
             ].map((p) => (
               <div key={p.name} className={`relative rounded-2xl border-2 p-6 bg-card ${p.featured ? "border-foreground shadow-[6px_6px_0_hsl(var(--foreground))]" : "border-foreground/15"}`}>
                 {p.featured && <span className="absolute -top-3 left-6 stamp text-coral text-xs bg-card">most picked</span>}
@@ -203,7 +221,13 @@ export default function Home() {
                     <li key={f} className="flex items-start gap-2"><span className="text-primary mt-1">✓</span> {f}</li>
                   ))}
                 </ul>
-                <Button variant={p.variant} className="w-full mt-6">{p.cta}</Button>
+                <Button
+                  variant={p.featured ? "paper" : "outline"}
+                  className="w-full mt-6"
+                  onClick={openSignup}
+                >
+                  {p.cta}
+                </Button>
               </div>
             ))}
           </div>
@@ -223,7 +247,9 @@ export default function Home() {
           </h2>
           <p className="mt-6 text-lg text-muted-foreground">Open a canvas, invite the team, walk out with a task board. That's the loop.</p>
           <div className="mt-8 flex items-center justify-center gap-3 flex-wrap">
-            <Button asChild variant="paper" size="xl"><Link href="/dashboard">Start free workspace <ArrowRight className="h-4 w-4"/></Link></Button>
+            <Button variant="paper" size="xl" onClick={openSignup}>
+              Start free workspace <ArrowRight className="h-4 w-4"/>
+            </Button>
             <Button variant="ghost" size="xl">Book a demo</Button>
           </div>
           <p className="font-hand text-xl text-muted-foreground mt-6">no credit card · no onboarding call · just a canvas</p>
@@ -231,6 +257,8 @@ export default function Home() {
       </section>
 
       <Footer />
+
+      <AuthModal open={authOpen} defaultMode={authMode} onClose={() => setAuthOpen(false)} />
     </div>
   );
 }

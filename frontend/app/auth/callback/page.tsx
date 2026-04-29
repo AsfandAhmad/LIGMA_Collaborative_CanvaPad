@@ -33,6 +33,7 @@ export default function AuthCallback() {
         email: user.email,
         name: user.user_metadata?.display_name || user.user_metadata?.full_name || user.email,
         role: user.user_metadata?.role || "Contributor",
+        avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
       });
 
       await authApi.syncProfile();
