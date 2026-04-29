@@ -76,4 +76,28 @@ router.get('/:roomId/export', authenticateToken, async (req, res) => {
   }
 });
 
+// Get canvas history/events
+router.get('/:roomId/history', authenticateToken, async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { afterId } = req.query;
+    
+    console.log('[Canvas History] Fetching events for room:', roomId);
+    
+    const events = await eventService.getEvents(roomId, afterId ? parseInt(afterId) : 0);
+    
+    console.log('[Canvas History] Found', events.length, 'events');
+    
+    res.json({ 
+      events,
+      count: events.length,
+      roomId 
+    });
+  } catch (error) {
+    console.error('[Canvas History] Error:', error);
+    console.error('[Canvas History] Stack:', error.stack);
+    res.status(500).json({ error: 'Failed to fetch canvas history', details: error.message });
+  }
+});
+
 module.exports = router;

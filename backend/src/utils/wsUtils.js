@@ -73,6 +73,12 @@ async function parseWsQuery(req) {
   let user;
   try {
     user = await getUserForToken(token);
+    console.log('[wsUtils] User from token:', { 
+      id: user?.id, 
+      email: user?.email, 
+      metadata: user?.user_metadata,
+      app_metadata: user?.app_metadata 
+    });
   } catch (error) {
     // TEMPORARY: If token validation fails, allow as guest
     console.warn(`⚠️ [TEMP] Token validation failed, allowing as guest: ${error.message}`);
@@ -116,6 +122,13 @@ async function parseWsQuery(req) {
     }
   }
 
+  console.log('[wsUtils] Authenticated user:', {
+    id: user.id,
+    email: user.email,
+    name: user.user_metadata?.name || user.user_metadata?.display_name || user.user_metadata?.full_name || user.email?.split('@')[0],
+    metadata: user.user_metadata
+  });
+
   return {
     token,
     roomId,
@@ -123,8 +136,8 @@ async function parseWsQuery(req) {
     user: {
       id: user.id,
       email: user.email,
-      role: user.user_metadata?.role || 'Contributor',
-      name: user.user_metadata?.display_name || user.user_metadata?.full_name || user.email,
+      role: user.user_metadata?.role || user.app_metadata?.role || 'Contributor',
+      name: user.user_metadata?.name || user.user_metadata?.display_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
     },
   };
 }

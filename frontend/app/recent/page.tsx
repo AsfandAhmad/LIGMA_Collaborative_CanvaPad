@@ -15,7 +15,7 @@ const thumbs = ["bg-sticky-yellow", "bg-sticky-pink", "bg-sticky-mint", "bg-stic
 const folderColors = ["bg-coral", "bg-warning", "bg-success", "bg-indigo"];
 
 export default function Recent() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [workspaceName, setWorkspaceName] = useState("Workspace");
@@ -25,6 +25,13 @@ export default function Recent() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
+
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (!authLoading && !user) {
+      window.location.href = '/auth';
+    }
+  }, [user, authLoading]);
 
   useEffect(() => {
     let isMounted = true;

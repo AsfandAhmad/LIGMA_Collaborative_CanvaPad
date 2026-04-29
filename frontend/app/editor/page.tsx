@@ -7,8 +7,7 @@ import {
   ArrowLeft, MousePointer2, Hand, StickyNote, Type, Square, Circle as CircleIcon,
   Diamond, ArrowUpRight, Minus, Pencil, Image as ImageIcon, Stamp, MessageCircle,
   Frame, Lock, Eraser, MoreHorizontal, Sparkles, Share2, Download, History,
-  Users, Search, Command, Play, ChevronRight, X, CheckCircle2, Circle,
-  Plus, Filter, Zap
+  Users, Search, X, CheckCircle2, ChevronRight, ChevronLeft
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -16,7 +15,6 @@ import { toast } from "@/hooks/use-toast";
 import { useCanvas } from "@/lib/hooks/useCanvas";
 import { CanvasWrapper } from "@/components/canvas/CanvasWrapper";
 import { usePresence } from "@/lib/hooks/usePresence";
-import { useTaskBoard } from "@/lib/hooks/useTaskBoard";
 import { useAuth } from "@/lib/auth-context";
 import { ShareModal } from "@/components/ligma/ShareModal";
 import { useRoleSync } from "@/lib/hooks/useRoleSync";
@@ -114,18 +112,11 @@ function EditorContent() {
   useRoleSync(taskBoardWs);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mode, setMode] = useState<"canvas" | "split" | "review">("split");
   const [shareOpen, setShareOpen] = useState(false);
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
-  // Scroll canvas to a specific node
-  const scrollToNode = useCallback((nodeId: string) => {
-    // Dispatch custom event that CanvasWrapper will listen to
-    window.dispatchEvent(new CustomEvent("canvas:scrollToNode", {
-      detail: { nodeId }
-    }));
-  }, []);
-
-  // Convert canvas nodes to Note format (for task board only)
+  // Convert canvas nodes to Note format (for right panel only)
   const notes: Note[] = canvasNodes.filter((n: any) => n.type === 'sticky').map((node: any) => {
     const intent = (node.intent || 'action') as Intent;
     return {
@@ -147,7 +138,6 @@ function EditorContent() {
   });
 
   const selected = notes.find(n => n.id === selectedId);
-  const linkedTaskNotes = notes.filter(n => n.taskStatus);
 
   return (
     <>
@@ -173,38 +163,96 @@ function EditorContent() {
           </span>
         </div>
 
-        {/* mode switch */}
-        <div className="ml-auto flex items-center gap-1 rounded-lg border-2 border-foreground/15 bg-background p-0.5">
-          {(["canvas","split","review"] as const).map(m => (
-            <button key={m} onClick={() => setMode(m)} className={cn(
-              "px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-all",
-              mode === m ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
-            )}>{m === "split" ? "Split View" : m}</button>
-          ))}
-        </div>
-
         <Button variant="ghost" size="icon-sm" className="hidden md:inline-flex" onClick={() => toast({ title: "Search canvas", description: "Try ⌘K — node search is coming soon." })}><Search className="h-4 w-4"/></Button>
-        <button onClick={() => toast({ title: "Command palette", description: "⌘K palette is coming next." })} className="hidden md:inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted">
-          <Command className="h-3 w-3"/> K
-        </button>
 
-        <div className="flex -space-x-1.5 ml-2">
-          {[{c:"bg-coral",i:"M"},{c:"bg-indigo",i:"J"},{c:"bg-success",i:"S"},{c:"bg-warning",i:"L"}].map((u,i)=>(
-            <span key={i} className={`h-7 w-7 rounded-full ${u.c} text-background border-2 border-card flex items-center justify-center text-[10px] font-bold`}>{u.i}</span>
-          ))}
-        </div>
-        <Button variant="ghost" size="icon-sm" onClick={() => toast({ title: "Replay history", description: "Scrub the timeline at the bottom of the canvas." })}><History className="h-4 w-4"/></Button>
+        {/* Real authenticated users from presence */}
+        {liveCursors && liveCursors.length > 0 && (
+          <div className="flex -space-x-1.5 ml-2">
+            {liveCursors.slice(0, 4).map((cursor, i) => {
+              const initial = cursor.name?.[0]?.toUpperCase() || '?';
+              const colorClass = userColors[i % userColors.length];
+              return (
+                <span 
+                  key={cursor.userId || i} 
+                  className={`h-7 w-7 rounded-full ${colorClass} text-background border-2 border-card flex items-center justify-center text-[10px] font-bold`}
+                  title={cursor.name || 'Anonymous'}
+                >
+                  {initial}
+                </span>
+              );
+            })}
+            {liveCursors.length > 4 && (
+              <span className="h-7 w-7 rounded-full bg-muted text-foreground border-2 border-card flex items-center justify-center text-[10px] font-bold">
+                +{liveCursors.length - 4}
+              </span>
+            )}
+          </div>
+        )}
+        <Button variant="ghost" size="icon-sm" onClick={() => setHistoryOpen(true)}><History className="h-4 w-4"/></Button>
         <Button variant="ghost" size="sm" onClick={() => setShareOpen(true)}>
           <Share2 className="h-3.5 w-3.5"/> Share
         </Button>
-        <Button variant="paper" size="sm" onClick={() => toast({ title: "Export started", description: "Your PDF will download shortly." })}><Download className="h-3.5 w-3.5"/> Export</Button>
+        <Button 
+          variant="paper" 
+          size="sm" 
+          onClick={async () => {
+            try {
+              toast({ title: "Capturing canvas...", description: "Generating image" });
+              
+              // Dynamically import html2canvas
+              const html2canvas = (await import('html2canvas')).default;
+              
+              // Find the canvas section
+              const canvasSection = document.querySelector('section.bg-paper') as HTMLElement;
+              
+              if (!canvasSection) {
+                toast({ title: "Export failed", description: "Canvas not found", variant: "destructive" });
+                return;
+              }
+
+              // Capture the canvas
+              const canvas = await html2canvas(canvasSection, {
+                backgroundColor: '#f5f5f0',
+                scale: 2,
+                logging: false,
+                useCORS: true,
+                allowTaint: true,
+              });
+
+              // Convert to blob and download
+              canvas.toBlob((blob) => {
+                if (!blob) {
+                  toast({ title: "Export failed", description: "Could not generate image", variant: "destructive" });
+                  return;
+                }
+                
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `canvas-export-${Date.now()}.png`;
+                document.body.appendChild(a);
+                a.click();
+                URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                toast({ title: "Export successful", description: "Canvas exported as PNG" });
+              }, 'image/png');
+              
+            } catch (error) {
+              console.error('Export error:', error);
+              toast({ title: "Export failed", description: "Could not export canvas", variant: "destructive" });
+            }
+          }}
+        >
+          <Download className="h-3.5 w-3.5"/> Export
+        </Button>
       </header>
 
       <div className="flex-1 flex min-h-0">
 
         {/* CANVAS */}
         <section 
-          className={cn("relative bg-paper overflow-hidden", mode === "split" ? "flex-1" : "flex-1")}
+          className="flex-1 relative bg-paper overflow-hidden"
         >
           {/* Viewer Read-Only Banner */}
           {user?.role === 'viewer' || user?.role === 'Viewer' ? (
@@ -228,136 +276,23 @@ function EditorContent() {
           />
         </section>
 
-        {/* SPLIT — Task Board */}
-        {mode === "split" && (
-          <section className="w-[400px] xl:w-[440px] shrink-0 border-l-2 border-foreground/10 bg-card flex flex-col">
-            <div className="px-4 py-3 border-b border-foreground/10 flex items-center gap-2">
-              <div>
-                <div className="zine-label">/task board</div>
-                <h3 className="font-bold text-sm flex items-center gap-2">
-                  Synced from canvas
-                  <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[9px] font-mono"><Sparkles className="h-2.5 w-2.5"/>AI</span>
-                </h3>
-              </div>
-              <div className="ml-auto flex gap-1">
-                <Button variant="ghost" size="icon-sm"><Filter className="h-3.5 w-3.5"/></Button>
-                <Button variant="ghost" size="icon-sm"><Plus className="h-3.5 w-3.5"/></Button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-3 space-y-4">
-              {(["todo","in_progress","done"] as const).map(col => {
-                // Combine: canvas nodes with taskStatus + real backend tasks
-                const nodeItems = linkedTaskNotes.filter(n => n.taskStatus === col);
-                const backendItems = tasks.filter(t => t.status === col);
-                const Icon = col === "done" ? CheckCircle2 : Circle;
-                return (
-                  <div key={col}>
-                    <div className="flex items-center gap-2 mb-2 px-1">
-                      <span className="zine-label">{col}</span>
-                      <span className="text-[10px] font-mono text-muted-foreground">{nodeItems.length + backendItems.length}</span>
-                      <div className="flex-1 h-px bg-border ml-1" />
-                    </div>
-                    <div className="space-y-2">
-                      {nodeItems.map(n => {
-                        const meta = intentMeta[n.intent];
-                        const isLinked = selectedId === n.id;
-                        return (
-                          <button
-                            key={n.id}
-                            onClick={() => setSelectedId(n.id)}
-                            className={cn(
-                              "w-full text-left rounded-lg border-2 p-3 bg-background transition-all",
-                              isLinked ? "border-primary shadow-glow" : "border-foreground/15 hover:border-foreground/40"
-                            )}
-                          >
-                            <div className="flex items-start gap-2">
-                              <Icon className={cn("h-4 w-4 mt-0.5 shrink-0",
-                                col === "done" ? "text-success" : "text-muted-foreground"
-                              )}/>
-                              <div className="flex-1 min-w-0">
-                                <div className={cn("text-[13px] font-medium leading-snug", col === "done" && "line-through text-muted-foreground")}>{n.text}</div>
-                                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                                  <span className={cn("text-[9px] font-mono px-1.5 py-0.5 rounded", meta.chip)}>● {meta.label}</span>
-                                  {n.locked && <Lock className="h-3 w-3 text-foreground"/>}
-                                  <span className="ml-auto text-[10px] font-mono text-primary flex items-center gap-0.5"><Zap className="h-2.5 w-2.5"/>canvas</span>
-                                </div>
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
-                      {backendItems.map(t => {
-                        const isLinked = selectedId === t.nodeId;
-                        return (
-                          <div key={t.id} className="w-full rounded-lg border-2 p-3 bg-background border-foreground/15 space-y-2">
-                            <div className="flex items-start gap-2">
-                              <Icon className={cn("h-4 w-4 mt-0.5 shrink-0", col === "done" ? "text-success" : "text-muted-foreground")}/>
-                              <div className="flex-1 min-w-0">
-                                <div className={cn("text-[13px] font-medium leading-snug", col === "done" && "line-through text-muted-foreground")}>{t.text}</div>
-                                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                                  <span className="text-[10px] font-mono text-muted-foreground">@{t.authorName?.toLowerCase() ?? 'unknown'}</span>
-                                  <span className="ml-auto text-[10px] font-mono text-success flex items-center gap-0.5"><Zap className="h-2.5 w-2.5"/>AI task</span>
-                                </div>
-                              </div>
-                            </div>
-                            {/* Action buttons */}
-                            <div className="flex gap-2">
-                              {t.nodeId && (
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  className="flex-1 text-xs h-7"
-                                  onClick={() => {
-                                    scrollToNode(t.nodeId);
-                                    setSelectedId(t.nodeId);
-                                    toast({ title: "Scrolling to node", description: "Canvas will pan to the linked sticky note" });
-                                  }}
-                                >
-                                  <ChevronRight className="h-3 w-3 mr-1"/> Go to Node
-                                </Button>
-                              )}
-                              {user?.role !== 'viewer' && col !== 'done' && (
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
-                                  className="text-xs h-7"
-                                  onClick={async () => {
-                                    try {
-                                      const nextStatus = col === 'todo' ? 'in_progress' : 'done';
-                                      await updateTaskStatusAPI(t.id, nextStatus);
-                                      toast({ title: "Task updated", description: `Moved to ${nextStatus.replace('_', ' ')}` });
-                                    } catch (error) {
-                                      toast({ title: "Failed to update task", variant: "destructive" });
-                                    }
-                                  }}
-                                >
-                                  {col === 'todo' ? 'Start' : 'Complete'}
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {nodeItems.length === 0 && backendItems.length === 0 && (
-                        <div className="text-xs text-muted-foreground italic px-3 py-2 border border-dashed border-border rounded-md">no tasks here</div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {/* RIGHT PANEL */}
-        <aside className="w-80 shrink-0 border-l-2 border-foreground/10 bg-card flex flex-col">
-          {selected ? (
-            <>
-              <div className="px-4 py-3 border-b border-foreground/10 flex items-center gap-2">
-                <div className="zine-label">/node details</div>
-                <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => setSelectedId(null)}><X className="h-3.5 w-3.5"/></Button>
-              </div>
+        {/* RIGHT PANEL - Collapsible */}
+        {rightPanelOpen && (
+          <aside className="w-80 shrink-0 border-l-2 border-foreground/10 bg-card flex flex-col">
+            {selected ? (
+              <>
+                <div className="px-4 py-3 border-b border-foreground/10 flex items-center gap-2">
+                  <div className="zine-label">/node details</div>
+                  <Button 
+                    variant="ghost" 
+                    size="icon-sm" 
+                    onClick={() => setRightPanelOpen(false)}
+                    title="Collapse panel"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5"/>
+                  </Button>
+                  <Button variant="ghost" size="icon-sm" onClick={() => setSelectedId(null)}><X className="h-3.5 w-3.5"/></Button>
+                </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-5">
                 <div>
                   <div className={cn("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-mono mb-2", intentMeta[selected.intent].chip)}>
@@ -407,11 +342,28 @@ function EditorContent() {
               </div>
             </>
           ) : (
-            <RoomInsights />
+            <RoomInsights onCollapse={() => setRightPanelOpen(false)} />
           )}
         </aside>
+        )}
+
+        {/* Expand Button - Shows when right panel is closed */}
+        {!rightPanelOpen && (
+          <button
+            onClick={() => setRightPanelOpen(true)}
+            className="fixed right-4 bottom-4 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl transition-all border-2 border-primary/20"
+            title="Open AI Panel"
+          >
+            <ChevronLeft className="h-4 w-4"/>
+            <Sparkles className="h-4 w-4"/>
+            <span className="text-sm font-medium">AI Panel</span>
+          </button>
+        )}
       </div>
     </div>
+
+    {/* History Modal */}
+    {historyOpen && <HistoryModal roomId={roomId} open={historyOpen} onClose={() => setHistoryOpen(false)} />}
 
     {shareOpen && (
       <ShareModal
@@ -449,7 +401,7 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
-function RoomInsights() {
+function RoomInsights({ onCollapse }: { onCollapse: () => void }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const searchParams = useSearchParams();
@@ -493,9 +445,20 @@ function RoomInsights() {
 
   return (
     <>
-      <div className="px-4 py-3 border-b border-foreground/10">
-        <div className="zine-label">/room insights</div>
-        <h3 className="font-bold text-sm mt-0.5 flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5 text-primary"/> AI is watching</h3>
+      <div className="px-4 py-3 border-b border-foreground/10 flex items-center gap-2">
+        <div>
+          <div className="zine-label">/room insights</div>
+          <h3 className="font-bold text-sm mt-0.5 flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5 text-primary"/> AI is watching</h3>
+        </div>
+        <Button 
+          variant="ghost" 
+          size="icon-sm" 
+          className="ml-auto"
+          onClick={onCollapse}
+          title="Collapse panel"
+        >
+          <ChevronRight className="h-3.5 w-3.5"/>
+        </Button>
       </div>
       <div className="p-4 space-y-5 text-sm">
         <div className="flex items-center gap-2"><Users className="h-4 w-4 text-muted-foreground"/> <span>Real-time collaboration active</span></div>
@@ -539,3 +502,119 @@ function RoomInsights() {
 }
 
 
+
+// History Modal Component
+function HistoryModal({ roomId, open, onClose }: { roomId: string; open: boolean; onClose: () => void }) {
+  const [events, setEvents] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const fetchHistory = async () => {
+      try {
+        const token = localStorage.getItem('auth_token');
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+        
+        const response = await fetch(`${API_URL}/api/canvas/${roomId}/history`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('History API error:', response.status, errorText);
+          throw new Error(`Failed to fetch history: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setEvents(data.events || []);
+      } catch (error: any) {
+        console.error('History fetch error:', error);
+        toast({ 
+          title: "Failed to load history", 
+          description: error.message || "Could not fetch canvas history",
+          variant: "destructive" 
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchHistory();
+  }, [open, roomId]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div className="bg-card border-2 border-foreground/10 rounded-lg w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-foreground/10 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold">Canvas History</h2>
+            <p className="text-sm text-muted-foreground">Event log for this room</p>
+          </div>
+          <Button variant="ghost" size="icon-sm" onClick={onClose}>
+            <X className="h-4 w-4"/>
+          </Button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+                <p className="mt-4 text-sm text-muted-foreground">Loading history...</p>
+              </div>
+            </div>
+          ) : events.length === 0 ? (
+            <div className="text-center py-12">
+              <History className="h-12 w-12 mx-auto text-muted-foreground mb-4"/>
+              <p className="text-sm text-muted-foreground">No events yet</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {events.map((event, index) => (
+                <div key={event.id || index} className="border border-border rounded-lg p-4 hover:bg-muted/50 transition-colors">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-mono bg-primary/10 text-primary">
+                          {event.type}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(event.timestamp).toLocaleString()}
+                        </span>
+                      </div>
+                      {event.payload && (
+                        <pre className="text-xs text-muted-foreground mt-2 overflow-x-auto">
+                          {JSON.stringify(event.payload, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      #{event.id}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-foreground/10 flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">
+            {events.length} {events.length === 1 ? 'event' : 'events'}
+          </span>
+          <Button variant="paper" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
