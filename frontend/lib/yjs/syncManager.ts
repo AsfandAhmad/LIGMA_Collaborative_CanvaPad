@@ -19,7 +19,12 @@ export class SyncManager {
     this.nodesMap = this.doc.getMap('nodes');
 
     // Listen to changes and notify subscribers
-    this.nodesMap.observe(() => {
+    this.nodesMap.observe((event) => {
+      console.log(`[SyncManager] nodesMap changed:`, {
+        keysChanged: Array.from(event.keysChanged),
+        currentSize: this.nodesMap.size,
+        listenerCount: this.listeners.size
+      });
       this.notifyListeners();
     });
   }
@@ -237,6 +242,7 @@ export class SyncManager {
    * Notify all listeners of changes
    */
   private notifyListeners() {
+    console.log(`[SyncManager] Notifying ${this.listeners.size} listeners of changes`);
     this.listeners.forEach(listener => listener());
   }
 

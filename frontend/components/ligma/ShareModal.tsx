@@ -144,32 +144,16 @@ export function ShareModal({ open, onClose, roomId, roomName }: ShareModalProps)
 
   // ── Copy share link ──────────────────────────────────────────────────────
   async function handleCopyLink() {
-    if (!share) {
-      // Create share config first
-      setSaving(true);
-      try {
-        const data = await apiFetch(`/api/rooms/${roomId}/share`, {
-          method: "POST",
-          body: JSON.stringify({ accessType: "anyone_with_link", linkRole: "viewer" }),
-        });
-        setShare(data.share);
-        copyToClipboard(data.share.token);
-      } catch (e: any) {
-        toast({ title: "Failed to create link", description: e.message, variant: "destructive" });
-      } finally {
-        setSaving(false);
-      }
-      return;
+    // Simple: just copy the current editor URL with roomId
+    const url = `${window.location.origin}/editor?roomId=${roomId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      toast({ title: "Link copied", description: "Share this link to invite collaborators." });
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      toast({ title: "Failed to copy", description: "Please copy the URL manually.", variant: "destructive" });
     }
-    copyToClipboard(share.token);
-  }
-
-  function copyToClipboard(token: string) {
-    const url = `${window.location.origin}/editor?roomId=${roomId}&shareToken=${token}`;
-    navigator.clipboard?.writeText(url).catch(() => {});
-    setCopied(true);
-    toast({ title: "Link copied", description: "Share this link to invite collaborators." });
-    setTimeout(() => setCopied(false), 2000);
   }
 
   // ── Add invites ──────────────────────────────────────────────────────────

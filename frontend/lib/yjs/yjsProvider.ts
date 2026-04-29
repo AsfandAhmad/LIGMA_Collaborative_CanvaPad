@@ -121,12 +121,15 @@ export class YjsProvider {
 
       if (syncMessageType === 0) {
         // SyncStep1: Server sends state vector, we respond with our state
+        console.log(`[YjsProvider] Received SyncStep1, payload size: ${payload.length} bytes`);
         const stateVector = payload;
         const update = Y.encodeStateAsUpdate(this.doc, stateVector);
+        console.log(`[YjsProvider] Sending SyncStep2 response, update size: ${update.length} bytes, doc has ${this.doc.getMap('nodes').size} nodes`);
         this.sendSyncStep2(update);
 
       } else if (syncMessageType === 1) {
         // SyncStep2: Server sends missing updates
+        console.log(`[YjsProvider] Received SyncStep2, payload size: ${payload.length} bytes`);
         Y.applyUpdate(this.doc, payload, this);
         
         if (!this.synced) {
@@ -137,15 +140,21 @@ export class YjsProvider {
 
       } else if (syncMessageType === 2) {
         // Update: Server sends incremental update
+        console.log(`[YjsProvider] Received incremental update, payload size: ${payload.length} bytes`);
         Y.applyUpdate(this.doc, payload, this);
+        console.log(`[YjsProvider] Applied incremental update to local document`);
       }
     }
   };
 
   private handleLocalUpdate = (update: Uint8Array, origin: any) => {
     // Don't send updates that came from the server
-    if (origin === this) return;
+    if (origin === this) {
+      console.log(`[YjsProvider] Skipping local update (came from server)`);
+      return;
+    }
 
+    console.log(`[YjsProvider] Sending local update to server, size: ${update.length} bytes`);
     // Send update to server
     this.sendUpdate(update);
   };
@@ -172,13 +181,21 @@ export class YjsProvider {
   }
 
   private sendUpdate(update: Uint8Array) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.error(`[YjsProvider] Cannot send update - WebSocket not open, state: ${this.ws?.readyState}`);
+      return;
+    }
 
-    const message = new Uint8Array(2 + update.length);
-    message[0] = 0; // messageType: sync
-    message[1] = 2; // syncMessageType: Update
-    message.set(update, 2);
-    this.ws.send(message);
+    try {
+      const message = new Uint8Array(2 + update.length);
+      message[0] = 0; // messageType: sync
+      message[1] = 2; // syncMessageType: Update
+      message.set(update, 2);
+      this.ws.send(message);
+      console.log(`[YjsProvider] Successfully sent update message, total size: ${message.length} bytes`);
+    } catch (error) {
+      console.error(`[YjsProvider] Error sending update:`, error);
+    }
   }
 
   public disconnect() {

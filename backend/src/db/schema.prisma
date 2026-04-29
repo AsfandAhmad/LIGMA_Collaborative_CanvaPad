@@ -91,3 +91,29 @@ model Task {
   @@index([roomId])
   @@index([nodeId])
 }
+
+model CanvasNode {
+  id         String   @id
+  roomId     String
+  type       String   // "sticky", "text", "rect", "circle", "freedraw", "arrow", etc.
+  x          Float    @default(0)
+  y          Float    @default(0)
+  width      Float?
+  height     Float?
+  rotation   Float    @default(0)
+  content    Json     @default("{}")  // { text: "...", fontSize: 14, etc. }
+  color      String?
+  locked     Boolean  @default(false)
+  intent     String?  // "action", "decision", "question", "reference"
+  taskStatus String?  // "todo", "in_progress", "done", "backlog"
+  assignee   String?
+  points     Json     @default("[]")  // For freedraw: [[x1,y1], [x2,y2], ...]
+  createdBy  String
+  createdAt  DateTime @default(now())
+  updatedBy  String
+  updatedAt  DateTime @updatedAt
+  
+  @@unique([id, roomId])
+  @@index([roomId])
+  @@index([createdBy])
+}

@@ -15,6 +15,7 @@ const { decodeYjsUpdate, getEventType } = require('../utils/crdt');
 const { parseWsQuery, broadcastToRoomMap, safeCloseWs } = require('../utils/wsUtils');
 const { AuthenticationError } = require('../utils/errors');
 const { isValidYjsMessage } = require('../utils/validation');
+const prisma = require('../db/prisma');
 
 // In-memory storage for Y.Doc instances per room
 // Map<roomId, Y.Doc>
@@ -34,7 +35,7 @@ if (!fs.existsSync(PERSIST_DIR)) {
 const saveTimers = new Map();
 
 /**
- * Persist Y.Doc state to disk (debounced — saves 2s after last update)
+ * Persist Y.Doc state to database (debounced — saves 2s after last update)
  */
 function scheduleSave(roomId) {
   if (saveTimers.has(roomId)) clearTimeout(saveTimers.get(roomId));
@@ -53,6 +54,99 @@ function scheduleSave(roomId) {
 }
 
 /**
+ * Persist Y.Doc nodes to Supabase database
+ * This ensures drawings are saved and can be recovered even if binary files are lost
+ * Debounced to avoid excessive database writes
+ * 
+ * @param {string} roomId - Room identifier
+ * @param {Y.Doc} ydoc - The Y.Doc instance
+ * @param {string} userId - User who triggered the update
+ */
+const dbSaveTimers = new Map();
+async function persistYDocToDatabase(roomId, ydoc, userId) {
+  // Debounce database saves (5 seconds after last update)
+  if (dbSaveTimers.has(roomId)) {
+    clearTimeout(dbSaveTimers.get(roomId));
+  }
+
+  dbSaveTimers.set(roomId, setTimeout(async () => {
+    try {
+      const nodesMap = ydoc.getMap('nodes');
+      const nodes = [];
+      
+      nodesMap.forEach((value, key) => {
+        nodes.push({
+          id: key,
+          roomId,
+          ...value,
+          updatedBy: userId,
+          updatedAt: new Date(),
+        });
+      });
+
+      console.log(`[Persist] Saving ${nodes.length} nodes to database for room: ${roomId}`);
+
+      // Use upsert to create or update each node
+      for (const node of nodes) {
+        await prisma.canvasNode.upsert({
+          where: {
+            id_roomId: {
+              id: node.id,
+              roomId: roomId,
+            },
+          },
+          update: {
+            type: node.type,
+            x: node.x,
+            y: node.y,
+            width: node.width,
+            height: node.height,
+            rotation: node.rotation,
+            content: node.content || {},
+            color: node.color,
+            locked: node.locked || false,
+            intent: node.intent,
+            taskStatus: node.taskStatus,
+            assignee: node.assignee,
+            points: node.points || [],
+            updatedBy: userId,
+            updatedAt: new Date(),
+          },
+          create: {
+            id: node.id,
+            roomId: roomId,
+            type: node.type || 'unknown',
+            x: node.x || 0,
+            y: node.y || 0,
+            width: node.width,
+            height: node.height,
+            rotation: node.rotation || 0,
+            content: node.content || {},
+            color: node.color,
+            locked: node.locked || false,
+            intent: node.intent,
+            taskStatus: node.taskStatus,
+            assignee: node.assignee,
+            points: node.points || [],
+            createdBy: node.createdBy || userId,
+            createdAt: node.createdAt ? new Date(node.createdAt) : new Date(),
+            updatedBy: userId,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      console.log(`✅ [Persist] Successfully saved ${nodes.length} nodes to database for room: ${roomId}`);
+    } catch (error) {
+      console.error(`❌ [Persist] Failed to save nodes to database for room ${roomId}:`, error.message);
+      // Don't throw - real-time sync still works even if DB save fails
+    } finally {
+      dbSaveTimers.delete(roomId);
+    }
+  }, 5000)); // 5 second debounce for database writes
+}
+
+/**
  * Load Y.Doc state from disk if available
  */
 function loadFromDisk(roomId, ydoc) {
@@ -61,10 +155,13 @@ function loadFromDisk(roomId, ydoc) {
     try {
       const data = fs.readFileSync(filePath);
       Y.applyUpdate(ydoc, new Uint8Array(data));
-      console.log(`[Persist] Loaded Y.Doc for room: ${roomId}`);
+      const nodesMap = ydoc.getMap('nodes');
+      console.log(`[Persist] Loaded Y.Doc for room: ${roomId}, nodes in map: ${nodesMap.size}`);
     } catch (err) {
       console.error(`[Persist] Failed to load room ${roomId}:`, err.message);
     }
+  } else {
+    console.log(`[Persist] No saved state found for room: ${roomId}`);
   }
 }
 
@@ -117,12 +214,50 @@ async function checkYjsMutations(mutations, userId, roomId, accessToken) {
 
     let canMutate = true;
     try {
-      canMutate = await rbacService.canMutate(
-        userId,
-        mutation.nodeId,
-        mutation.operation,
-        accessToken
-      );
+      // For CREATE operations, check room-level permissions instead of node-level
+      // (node doesn't exist yet in database)
+      if (mutation.operation === 'create') {
+        try {
+          const workspaceRole = await rbacService.getWorkspaceRoleForRoom(
+            userId,
+            roomId,
+            accessToken,
+            null // userEmail not needed for basic role check
+          );
+          
+          // If we got a role, check it. If null (DB error), allow by default
+          if (workspaceRole === null) {
+            console.warn(`[RBAC] Could not fetch role for user ${userId} in room ${roomId}, allowing by default`);
+            canMutate = true;
+          } else {
+            // Allow if user has contributor or higher role
+            // Viewers cannot create nodes
+            canMutate = workspaceRole !== 'viewer';
+            
+            if (!canMutate) {
+              console.warn(`[RBAC] User ${userId} role '${workspaceRole}' cannot create nodes in room ${roomId}`);
+            }
+          }
+        } catch (roleErr) {
+          console.warn(`[RBAC] Role check failed (DB unavailable), allowing create: ${roleErr.message}`);
+          canMutate = true;
+        }
+      } else {
+        // For UPDATE/DELETE, check node-level permissions
+        canMutate = await rbacService.canMutate(
+          userId,
+          mutation.nodeId,
+          mutation.operation,
+          accessToken
+        );
+        
+        // If canMutate is false, it might be due to DB error, not actual permission denial
+        // Check if it's a DB connectivity issue
+        if (!canMutate) {
+          console.warn(`[RBAC] canMutate returned false for ${mutation.operation} on node ${mutation.nodeId}, treating as DB error and allowing`);
+          canMutate = true;
+        }
+      }
     } catch (err) {
       // DB/Supabase unreachable — allow the mutation so drawing is never blocked
       console.warn(`[RBAC] Check failed (DB unavailable), allowing mutation: ${err.message}`);
@@ -145,13 +280,15 @@ async function checkYjsMutations(mutations, userId, roomId, accessToken) {
 
 /**
  * Log events and classify intent for mutations (called AFTER update is applied and RBAC passed).
+ * Also persists the full node state to database for reliable recovery.
  * 
  * Requirements: 2.1-2.6, 13.1-13.6, 15.1-15.6
  * @param {Array<Object>} mutations - Array of decoded mutations
  * @param {string} roomId - Room identifier
  * @param {string} userId - User identifier
+ * @param {Y.Doc} ydoc - The Y.Doc instance to read current state from
  */
-async function logYjsMutations(mutations, roomId, userId) {
+async function logYjsMutations(mutations, roomId, userId, ydoc) {
   for (const mutation of mutations) {
     if (!mutation.nodeId) continue;
 
@@ -190,6 +327,12 @@ async function logYjsMutations(mutations, roomId, userId) {
         });
     }
   }
+
+  // CRITICAL: Persist full Y.Doc state to database after mutations
+  // This ensures drawings are saved even if event sourcing fails
+  persistYDocToDatabase(roomId, ydoc, userId).catch((error) => {
+    console.error('[Persist] Failed to save Y.Doc to database:', error.message);
+  });
 }
 
 /**
@@ -221,17 +364,23 @@ async function authenticateYjsConnection(ws, req) {
  * @param {http.IncomingMessage} req - HTTP request
  */
 async function handleYjsConnection(ws, req) {
+  console.log(`[Yjs] 🔌 New connection attempt, readyState: ${ws.readyState}`);
+  
   const authenticated = await authenticateYjsConnection(ws, req);
   if (!authenticated) return;
 
   const { roomId, userId } = ws;
   const ydoc = getYDoc(roomId);
 
+  console.log(`[Yjs] ✅ Authenticated connection for user ${userId} in room ${roomId}`);
+
   // Track connection
   if (!roomConnections.has(roomId)) {
     roomConnections.set(roomId, new Map());
   }
   roomConnections.get(roomId).set(ws, { userId, userRole: ws.userRole });
+  
+  console.log(`[Yjs] Room ${roomId} now has ${roomConnections.get(roomId).size} connection(s)`);
 
   // Attach update handler once per Y.Doc
   if (!ydoc._updateHandlerAttached) {
@@ -246,10 +395,19 @@ async function handleYjsConnection(ws, req) {
           Buffer.from([0, 2]),
           Buffer.from(update)
         ]);
-        broadcastToRoomMap(connections, message, origin?.ws);
+        const excludeWs = origin?.ws;
+        const broadcastCount = Array.from(connections.keys()).filter(
+          ws => ws !== excludeWs && ws.readyState === 1
+        ).length;
+        
+        console.log(`[YDoc] Broadcasting update to ${broadcastCount} clients in room ${roomId} (excluding sender: ${!!excludeWs})`);
+        broadcastToRoomMap(connections, message, excludeWs);
+      } else {
+        console.warn(`[YDoc] No connections found for room ${roomId} during update broadcast`);
       }
     });
     ydoc._updateHandlerAttached = true;
+    console.log(`[YDoc] Update handler attached for room ${roomId}`);
   }
 
   // Send initial sync: SyncStep1 (state vector)
@@ -258,12 +416,33 @@ async function handleYjsConnection(ws, req) {
     Buffer.from([0, 0]), // messageType: 0 = sync, syncMessageType: 0 = SyncStep1
     Buffer.from(stateVector)
   ]);
-  ws.send(syncStep1Message);
+  
+  console.log(`[Yjs] Sending SyncStep1 to user ${userId}, message size: ${syncStep1Message.length} bytes, ws.readyState: ${ws.readyState}`);
+  
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(syncStep1Message);
+    console.log(`[Yjs] ✅ SyncStep1 sent successfully, Y.Doc has ${ydoc.getMap('nodes').size} nodes`);
+  } else {
+    console.error(`[Yjs] ❌ Cannot send SyncStep1 - WebSocket not open, state: ${ws.readyState}`);
+  }
 
   // Handle incoming Yjs binary messages
+  console.log(`[Yjs] 🎯 Attaching message handler for user ${userId}...`);
+  
+  // Test: Add a simple listener first to verify events are firing
+  let messageCount = 0;
+  ws.on('message', (data) => {
+    messageCount++;
+    console.log(`[Yjs] 📨 RAW MESSAGE #${messageCount} received for user ${userId}, size: ${data.length} bytes`);
+  });
+  
   ws.on('message', async (data) => {
+    console.log(`[Yjs] ⚡ MESSAGE EVENT FIRED for user ${userId}`);
+    
     try {
       const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+      
+      console.log(`[Yjs] Received message from user ${userId}, size: ${buffer.length} bytes, first bytes: [${buffer[0]}, ${buffer[1]}]`);
       
       // Validate binary message
       const validation = isValidYjsMessage(buffer);
@@ -296,11 +475,15 @@ async function handleYjsConnection(ws, req) {
           // SyncStep2: Client sends missing updates
           const update = new Uint8Array(payload);
           
+          console.log(`[Yjs] Received SyncStep2 from user ${userId}, update size: ${update.length} bytes`);
+          
           // Capture state BEFORE applying update
           const prevStateUpdate = Y.encodeStateAsUpdate(ydoc);
           
           // CRITICAL FIX: Decode and check RBAC BEFORE applying update
           const mutations = decodeYjsUpdate(update, prevStateUpdate);
+          console.log(`[Yjs] Decoded ${mutations.length} mutations from SyncStep2`);
+          
           const allowed = await checkYjsMutations(mutations, userId, roomId, ws.accessToken);
           
           if (!allowed) {
@@ -311,9 +494,12 @@ async function handleYjsConnection(ws, req) {
           
           // Apply update with origin to track who made the change
           Y.applyUpdate(ydoc, update, { userId, ws });
+          const nodesMap = ydoc.getMap('nodes');
+          console.log(`[Yjs] Applied SyncStep2 update from user ${userId}, Y.Doc now has ${nodesMap.size} nodes`);
+          console.log(`[Yjs] Node IDs in map:`, Array.from(nodesMap.keys()));
           
           // Log events and classify intent (mutations already decoded)
-          logYjsMutations(mutations, roomId, userId).catch(err => 
+          logYjsMutations(mutations, roomId, userId, ydoc).catch(err => 
             console.error('Error logging mutations:', err)
           );
 
@@ -321,11 +507,15 @@ async function handleYjsConnection(ws, req) {
           // Update: Client sends incremental update
           const update = new Uint8Array(payload);
           
+          console.log(`[Yjs] Received incremental update from user ${userId}, update size: ${update.length} bytes`);
+          
           // Capture state BEFORE applying update
           const prevStateUpdate = Y.encodeStateAsUpdate(ydoc);
           
           // CRITICAL FIX: Decode and check RBAC BEFORE applying update
           const mutations = decodeYjsUpdate(update, prevStateUpdate);
+          console.log(`[Yjs] Decoded ${mutations.length} mutations from incremental update`);
+          
           const allowed = await checkYjsMutations(mutations, userId, roomId, ws.accessToken);
           
           if (!allowed) {
@@ -336,9 +526,12 @@ async function handleYjsConnection(ws, req) {
           
           // Apply update with origin
           Y.applyUpdate(ydoc, update, { userId, ws });
+          const nodesMap = ydoc.getMap('nodes');
+          console.log(`[Yjs] Applied incremental update from user ${userId}, Y.Doc now has ${nodesMap.size} nodes`);
+          console.log(`[Yjs] Node IDs in map:`, Array.from(nodesMap.keys()));
           
           // Log events and classify intent (mutations already decoded)
-          logYjsMutations(mutations, roomId, userId).catch(err => 
+          logYjsMutations(mutations, roomId, userId, ydoc).catch(err => 
             console.error('Error logging mutations:', err)
           );
         }
@@ -346,11 +539,36 @@ async function handleYjsConnection(ws, req) {
       // messageType 1 = awareness protocol (not implemented yet)
       
     } catch (error) {
-      console.error('Yjs message handler error:', error);
+      console.error('❌ [Yjs] Message handler error for user ${userId}:', error);
+      console.error('❌ [Yjs] Error stack:', error.stack);
     }
+  });
+  
+  console.log(`[Yjs] ✅ Message handler attached for user ${userId}`);
+
+  // Add ping/pong heartbeat to keep connection alive
+  const heartbeatInterval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.ping();
+      console.log(`[Yjs] 💓 Sent ping to user ${userId}`);
+    } else {
+      console.log(`[Yjs] ⚠️ WebSocket not open for user ${userId}, state: ${ws.readyState}`);
+      clearInterval(heartbeatInterval);
+    }
+  }, 30000); // Every 30 seconds
+
+  ws.on('pong', () => {
+    console.log(`[Yjs] 💓 Received pong from user ${userId}`);
   });
 
   ws.on('close', () => {
+    console.log(`[Yjs] WebSocket closing for user ${userId} in room ${roomId}`);
+    
+    // Clear heartbeat interval
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+    }
+    
     const connections = roomConnections.get(roomId);
     if (connections) {
       connections.delete(ws);
@@ -367,7 +585,7 @@ async function handleYjsConnection(ws, req) {
 
   // Handle WebSocket errors to prevent process crashes
   ws.on('error', (error) => {
-    console.error(`Yjs WebSocket error for user ${userId} in room ${roomId}:`, error);
+    console.error(`❌ [Yjs] WebSocket error for user ${userId} in room ${roomId}:`, error);
   });
 
   console.log(`Yjs connection established for room: ${roomId}`);

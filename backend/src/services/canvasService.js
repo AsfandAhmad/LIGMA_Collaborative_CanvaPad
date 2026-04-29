@@ -13,7 +13,8 @@ const groq = new Groq({
 });
 
 /**
- * Get canvas state by replaying all events
+ * Get canvas state from database
+ * First tries to load from CanvasNode table (fast), falls back to event replay (slow)
  * @param {string} roomId - Room ID
  * @returns {Promise<{nodes: Array, version: number}>}
  */
@@ -21,7 +22,24 @@ async function getCanvasState(roomId) {
   console.log(`[CanvasService] Getting canvas state for room: ${roomId}`);
   
   try {
-    // Fetch all events for the room in chronological order
+    // Try to load from CanvasNode table first (fast path)
+    const canvasNodes = await prisma.canvasNode.findMany({
+      where: { roomId },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (canvasNodes.length > 0) {
+      console.log(`[CanvasService] Loaded ${canvasNodes.length} nodes from CanvasNode table`);
+      return {
+        nodes: canvasNodes,
+        version: 0,
+        source: 'database',
+      };
+    }
+
+    console.log(`[CanvasService] No nodes in CanvasNode table, trying event replay...`);
+
+    // Fallback: Fetch all events for the room in chronological order
     const events = await prisma.event.findMany({
       where: { roomId },
       orderBy: { timestamp: 'asc' },
@@ -95,11 +113,12 @@ async function getCanvasState(roomId) {
     // Filter out deleted nodes and convert to array
     const activeNodes = Array.from(nodes.values()).filter(node => !node.deleted);
 
-    console.log(`[CanvasService] Returning ${activeNodes.length} active nodes`);
+    console.log(`[CanvasService] Returning ${activeNodes.length} active nodes from event replay`);
 
     return {
       nodes: activeNodes,
       version: latestEventId,
+      source: 'events',
     };
   } catch (error) {
     console.error('[CanvasService] Database error in getCanvasState:', error.message);

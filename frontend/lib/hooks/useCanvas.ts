@@ -50,7 +50,9 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
     // Subscribe to changes
     const unsubscribe = globalSyncManager.subscribe(() => {
       if (globalSyncManager) {
-        setNodes(globalSyncManager.getNodes());
+        const newNodes = globalSyncManager.getNodes();
+        console.log(`[useCanvas] Nodes updated, count: ${newNodes.length}`);
+        setNodes(newNodes);
         setIsConnected(globalSyncManager.isConnected());
         setIsSynced(globalSyncManager.isSynced());
       }
@@ -144,7 +146,10 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
 
   // Add a new node
   const addNode = useCallback((node: Omit<CanvasNode, 'id' | 'createdBy' | 'createdAt'>): string => {
-    if (!syncManagerRef.current) return '';
+    if (!syncManagerRef.current) {
+      console.error('[useCanvas] Cannot add node - syncManager not initialized');
+      return '';
+    }
 
     const nodeId = `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const fullNode: Omit<CanvasNode, 'id'> = {
@@ -153,7 +158,9 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
       createdAt: new Date().toISOString(),
     };
 
+    console.log(`[useCanvas] Adding node:`, { nodeId, type: node.type, fullNode });
     syncManagerRef.current.setNode(nodeId, fullNode);
+    console.log(`[useCanvas] Node added to Yjs, current node count: ${syncManagerRef.current.getNodes().length}`);
     return nodeId;
   }, [user]);
 

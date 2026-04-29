@@ -75,13 +75,15 @@ function EditorContent() {
   const [roomId, setRoomId] = useState<string>(() => {
     if (urlRoomId) return urlRoomId;
     // Generate unique roomId
-    const newRoomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    // Update URL without reload
-    if (typeof window !== 'undefined') {
-      window.history.replaceState({}, '', `/editor?roomId=${newRoomId}`);
-    }
-    return newRoomId;
+    return `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   });
+  
+  // Update URL with generated roomId (only once, after mount)
+  useEffect(() => {
+    if (!urlRoomId && roomId) {
+      router.replace(`/editor?roomId=${roomId}`, { scroll: false });
+    }
+  }, []); // Empty deps - only run once on mount
   
   const { user } = useAuth();
   
@@ -133,7 +135,8 @@ function EditorContent() {
   const linkedTaskNotes = notes.filter(n => n.taskStatus);
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
+    <>
+      <div className="h-screen flex flex-col bg-background overflow-hidden">
       {/* TOP BAR */}
       <header className="h-14 border-b-2 border-foreground/10 bg-card flex items-center px-3 gap-3 shrink-0">
         <Button asChild variant="ghost" size="icon-sm"><Link href="/lobby"><ArrowLeft className="h-4 w-4"/></Link></Button>
@@ -355,6 +358,7 @@ function EditorContent() {
         roomName="Sprint 44 — kickoff"
       />
     )}
+    </>
   );
 }
 
