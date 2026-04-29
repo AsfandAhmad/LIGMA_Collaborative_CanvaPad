@@ -21,6 +21,8 @@ function getSupabaseServiceClient() {
     return null;
   }
 
+  console.log('Using service role key:', supabaseServiceRoleKey.substring(0, 20) + '...');
+
   return createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: {
       persistSession: false,

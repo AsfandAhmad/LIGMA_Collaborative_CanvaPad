@@ -37,9 +37,14 @@ export default function Auth() {
   const handleGoogle = async () => {
     setIsLoading(true);
     try {
+      // Use localhost for development, otherwise use current origin
+      const redirectUrl = process.env.NODE_ENV === 'development' 
+        ? 'http://localhost:3000/auth/callback'
+        : `${window.location.origin}/auth/callback`;
+      
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: `${window.location.origin}/auth/callback` },
+        options: { redirectTo: redirectUrl },
       });
       if (error) toast({ title: "Google sign-in failed", description: error.message, variant: "destructive" });
     } finally {

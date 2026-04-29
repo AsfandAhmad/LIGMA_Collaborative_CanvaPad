@@ -76,16 +76,19 @@ router.post('/register', async (req, res) => {
       },
     });
 
-    await syncUserProfile(user, session.access_token);
-    await ensureWorkspaceForUser(user, session.access_token);
-    await logAuthEvent({
-      accessToken: session.access_token,
-      userId: user.id,
-      eventType: 'signup',
-      ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
-      success: true,
-    });
+    // Create workspace and sync profile in background
+    Promise.all([
+      syncUserProfile(user, session.access_token),
+      ensureWorkspaceForUser(user, session.access_token),
+      logAuthEvent({
+        accessToken: session.access_token,
+        userId: user.id,
+        eventType: 'signup',
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        success: true,
+      })
+    ]).catch(err => console.error('Background tasks error:', err));
   } catch (error) {
     console.error('Register error:', error);
     res.status(500).json({ error: 'Registration failed' });
@@ -123,16 +126,19 @@ router.post('/login', async (req, res) => {
       },
     });
 
-    await syncUserProfile(user, session.access_token);
-    await ensureWorkspaceForUser(user, session.access_token);
-    await logAuthEvent({
-      accessToken: session.access_token,
-      userId: user.id,
-      eventType: 'login',
-      ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
-      success: true,
-    });
+    // Create workspace and sync profile in background
+    Promise.all([
+      syncUserProfile(user, session.access_token),
+      ensureWorkspaceForUser(user, session.access_token),
+      logAuthEvent({
+        accessToken: session.access_token,
+        userId: user.id,
+        eventType: 'login',
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        success: true,
+      })
+    ]).catch(err => console.error('Background tasks error:', err));
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Login failed' });
@@ -149,7 +155,9 @@ router.post('/sync-profile', authenticateToken, async (req, res) => {
     }
 
     const profile = await syncUserProfile(data.user, req.accessToken);
-    res.json({ success: true, profile });
+    const workspace = await ensureWorkspaceForUser(data.user, req.accessToken);
+    
+    res.json({ success: true, profile, workspace });
   } catch (error) {
     console.error('Sync profile error:', error);
     res.status(500).json({ error: 'Failed to sync profile' });

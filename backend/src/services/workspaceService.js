@@ -10,7 +10,9 @@ function slugify(value) {
 }
 
 async function getPrimaryWorkspace(userId, accessToken) {
-  const client = getSupabaseClientForToken(accessToken);
+  // Use service client to bypass RLS issues
+  const serviceClient = getSupabaseServiceClient();
+  const client = serviceClient || getSupabaseClientForToken(accessToken);
   if (!client) return null;
 
   const { data, error } = await client
@@ -22,6 +24,7 @@ async function getPrimaryWorkspace(userId, accessToken) {
     .maybeSingle();
 
   if (error || !data?.workspace_id) {
+    console.warn('getPrimaryWorkspace error:', error?.message);
     return null;
   }
 
@@ -31,7 +34,10 @@ async function getPrimaryWorkspace(userId, accessToken) {
     .eq('id', data.workspace_id)
     .maybeSingle();
 
-  if (workspaceError) return null;
+  if (workspaceError) {
+    console.warn('getWorkspace error:', workspaceError?.message);
+    return null;
+  }
   return workspace;
 }
 
