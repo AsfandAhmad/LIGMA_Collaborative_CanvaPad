@@ -8,6 +8,7 @@ import { Logo } from "./Logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
+import { toast } from "@/hooks/use-toast";
 
 const items = [
   { icon: Clock, label: "Recent", to: "/recent" },
