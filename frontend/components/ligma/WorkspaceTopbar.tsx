@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, Plus, Sparkles, LogOut, Settings, User as UserIcon, AlertTriangle } from "lucide-react";
+import { Bell, Plus, Sparkles, LogOut, Settings, User as UserIcon, AlertTriangle, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
