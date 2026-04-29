@@ -113,6 +113,8 @@ function broadcastCursor(roomId, userId, cursorData, broadcast) {
     timestamp: cursorData.lastUpdate
   };
 
+  console.log(`Broadcasting cursor for user ${userId}: name="${cursorData.name}", color="${cursorData.color}"`);
+
   // Broadcast to all clients in room (broadcast function handles excluding sender)
   broadcast(roomId, message);
 }
@@ -134,6 +136,8 @@ function getCursorSnapshot(roomId) {
       ...cursorData
     });
   });
+
+  console.log(`Cursor snapshot for room ${roomId}:`, JSON.stringify(snapshot, null, 2));
 
   return snapshot;
 }

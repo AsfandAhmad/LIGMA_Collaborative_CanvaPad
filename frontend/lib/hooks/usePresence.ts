@@ -141,17 +141,24 @@ export function usePresence(options: UsePresenceOptions): UsePresenceReturn {
             if (!awareness) return;
 
             if (message.type === 'CURSOR_MOVE') {
-              const { userId, userName, userColor, x, y } = message.payload ?? message;
-              awareness.updateCursor(userId ?? message.userId, {
-                userName: userName ?? message.userName,
-                userColor: userColor ?? message.color,
-                x, y,
-              });
+              // Backend sends: { type, userId, userName, color, payload: {x, y}, timestamp }
+              const { userId, userName, color, payload } = message;
+              console.log('[usePresence] CURSOR_MOVE received:', { userId, userName, color, payload });
+              if (userId && payload) {
+                awareness.updateCursor(userId, {
+                  userName: userName || 'Unknown',
+                  userColor: color || '#999',
+                  x: payload.x,
+                  y: payload.y,
+                });
+              }
             } else if (message.type === 'CURSOR_SNAPSHOT') {
-              message.cursors?.forEach((cursor: UserCursor) => {
+              // Backend sends: { type: 'CURSOR_SNAPSHOT', cursors: [{userId, name, color, x, y, lastUpdate}] }
+              console.log('[usePresence] CURSOR_SNAPSHOT received:', message.cursors);
+              message.cursors?.forEach((cursor: any) => {
                 awareness.updateCursor(cursor.userId, {
-                  userName: cursor.userName,
-                  userColor: cursor.userColor,
+                  userName: cursor.name || cursor.userName || 'Unknown',
+                  userColor: cursor.color || cursor.userColor || '#999',
                   x: cursor.x,
                   y: cursor.y,
                 });

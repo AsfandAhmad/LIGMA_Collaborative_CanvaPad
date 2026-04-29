@@ -181,6 +181,11 @@ function renderText(ctx: CanvasRenderingContext2D, node: TextNode): void {
     textAlign = 'left', verticalAlign = 'top'
   } = node;
 
+  // Safety check for undefined text
+  if (!text) {
+    return;
+  }
+
   if (backgroundColor) {
     ctx.fillStyle = backgroundColor;
     ctx.fillRect(x, y, width, height);
@@ -608,6 +613,11 @@ function wrapText(
   text: string,
   maxWidth: number
 ): string[] {
+  // Safety check for undefined or null text
+  if (!text) {
+    return [];
+  }
+  
   const words = text.split(' ');
   const lines: string[] = [];
   let current = '';
