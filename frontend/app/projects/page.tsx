@@ -1,12 +1,16 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppSidebar } from "@/components/ligma/AppSidebar";
 import { WorkspaceTopbar } from "@/components/ligma/WorkspaceTopbar";
-import { SessionGrid } from "@/components/ligma/SessionGrid";
-import { useDemo } from "@/lib/demoStore";
+import { SessionGrid, type SessionItem } from "@/components/ligma/SessionGrid";
+import { roomsApi, workspacesApi, type Room } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
+
+const thumbs = ["bg-sticky-yellow", "bg-sticky-pink", "bg-sticky-mint", "bg-sticky-sky"];
+const folderColors = ["bg-coral", "bg-warning", "bg-success", "bg-indigo"];
 
 const folders = [
   { name: "All projects", color: "bg-foreground" },
@@ -19,8 +23,46 @@ const folders = [
 function ProjectsContent() {
   const searchParams = useSearchParams();
   const folder = searchParams.get("folder") || "All projects";
-  const sessions = useDemo(s => s.sessions.filter(s => !s.trashed));
-  const filtered = folder === "All projects" ? sessions : sessions.filter(s => s.folder === folder);
+  const { user } = useAuth();
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [workspaceName, setWorkspaceName] = useState("Workspace");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      if (!user) { setLoading(false); return; }
+      setLoading(true);
+      try {
+        const [roomData, primaryWorkspace] = await Promise.all([
+          roomsApi.getRooms(),
+          workspacesApi.getPrimary(),
+        ]);
+        if (!isMounted) return;
+        setRooms(roomData || []);
+        setWorkspaceName(primaryWorkspace?.name || "Workspace");
+      } catch (err) {
+        console.error("Failed to load rooms:", err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    load();
+    return () => { isMounted = false; };
+  }, [user]);
+
+  const sessionItems: SessionItem[] = rooms.map((room, i) => ({
+    id: room.id,
+    name: room.name,
+    folder: workspaceName,
+    folderColor: folderColors[i % folderColors.length],
+    thumb: thumbs[i % thumbs.length],
+    live: 0,
+    time: room.createdAt ? formatTime(room.createdAt) : "recently",
+    tasks: 0,
+  }));
+
+  const filtered = folder === "All projects" ? sessionItems : sessionItems.filter(s => s.folder === folder);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -50,11 +92,29 @@ function ProjectsContent() {
               );
             })}
           </div>
-          <SessionGrid sessions={filtered} empty={<p className="text-muted-foreground">No sessions in this project.</p>}/>
+          {loading ? (
+            <div className="rounded-2xl border-2 border-foreground/15 bg-card p-6 text-sm text-muted-foreground">
+              Loading projects…
+            </div>
+          ) : (
+            <SessionGrid sessions={filtered} empty={<p className="text-muted-foreground">No sessions in this project.</p>}/>
+          )}
         </div>
       </main>
     </div>
   );
+}
+
+function formatTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+  const diff = Date.now() - date.getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 export default function Projects() {

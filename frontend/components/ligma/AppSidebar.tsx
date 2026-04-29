@@ -3,13 +3,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Clock, Share2, LayoutTemplate, FolderKanban, Trash2, Settings, Plus, Sparkles } from "lucide-react";
+import { Clock, Share2, LayoutTemplate, FolderKanban, Trash2, Settings, Plus } from "lucide-react";
 import { Logo } from "./Logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useDemo } from "@/lib/demoStore";
 import { useAuth } from "@/lib/auth-context";
-import { toast } from "@/hooks/use-toast";
 
 const items = [
   { icon: Clock, label: "Recent", to: "/recent" },
@@ -29,14 +27,12 @@ const folders = [
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const demoUser = useDemo(s => s.user);
   const { user: authUser, isLoading: authLoading } = useAuth();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
-  // Only fall back to demoUser once auth has finished loading and confirmed no real user
-  const user = mounted ? (authUser ?? (!authLoading ? demoUser : null)) : null;
+  const user = mounted ? authUser : null;
   const initials = user?.name ? user.name.split(" ").slice(0, 2).map((p: string) => p[0]).join("").toUpperCase() : "?";
   const displayName = user?.name || "Guest";
   const displayRole = user?.role || "viewer";
@@ -96,15 +92,6 @@ export function AppSidebar() {
       </nav>
 
       <div className="p-3 border-t border-sidebar-border space-y-2">
-        <div className="rounded-xl border-2 border-foreground bg-warning p-3 relative">
-          <span className="stamp absolute -top-3 right-3 bg-card text-coral text-[10px]">hackathon</span>
-          <div className="font-mono text-[10px] uppercase tracking-wider mb-1">Issue 09</div>
-          <p className="text-sm font-medium leading-snug">Invite 3 teammates, get a free Pro month.</p>
-          <Button variant="ink" size="sm" className="mt-2 w-full" onClick={() => {
-            navigator.clipboard?.writeText("https://ligma.app/invite/orbital-2026").catch(()=>{});
-            toast({ title: "Invite link copied", description: "Share it with your team to unlock Pro." });
-          }}><Sparkles className="h-3.5 w-3.5"/> Invite team</Button>
-        </div>
         <Link href="/settings" className={cn("flex items-center gap-3 rounded-md px-2.5 py-2 text-sm hover:bg-sidebar-accent", pathname === "/settings" ? "bg-foreground text-background font-medium" : "text-muted-foreground")}>
           <Settings className="h-4 w-4"/> Settings
         </Link>

@@ -3,14 +3,11 @@
 import { AppSidebar } from "@/components/ligma/AppSidebar";
 import { WorkspaceTopbar } from "@/components/ligma/WorkspaceTopbar";
 import { SessionGrid } from "@/components/ligma/SessionGrid";
-import { useDemo, demoActions } from "@/lib/demoStore";
-import { Button } from "@/components/ui/button";
-import { Trash2 } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
 
 export default function Trash() {
-  const trashed = useDemo(s => s.sessions.filter(s => s.trashed));
-  const empty = trashed.length === 0;
+  // Trash functionality not yet implemented in backend
+  const trashed: any[] = [];
+  
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
@@ -23,12 +20,6 @@ export default function Trash() {
               <h2 className="text-xl font-bold">Items in your trash</h2>
               <p className="text-sm text-muted-foreground mt-1">Items here will be permanently deleted after 30 days.</p>
             </div>
-            {!empty && (
-              <Button variant="outline" onClick={() => {
-                trashed.forEach(t => demoActions.deleteSessionForever(t.id));
-                toast({ title: "Trash emptied" });
-              }}><Trash2 className="h-3.5 w-3.5"/> Empty trash</Button>
-            )}
           </div>
           <SessionGrid sessions={trashed} variant="trash" empty={<p className="text-muted-foreground">Trash is empty ✦</p>} />
         </div>

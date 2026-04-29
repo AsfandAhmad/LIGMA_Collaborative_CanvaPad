@@ -195,45 +195,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* PRICING */}
-      <section id="pricing" className="py-24 bg-muted/40 border-y border-foreground/10">
-        <div className="container">
-          <div className="text-center max-w-2xl mx-auto mb-14">
-            <div className="zine-label mb-3">§ 04 — the price tag</div>
-            <h2 className="text-4xl md:text-5xl font-bold tracking-tight">Start free. <span className="font-hand text-primary">Pay when it ships.</span></h2>
-          </div>
-          <div className="grid md:grid-cols-3 gap-5 max-w-5xl mx-auto">
-            {[
-              { name: "Free", price: "$0", tag: "for the curious", features: ["Up to 3 sessions", "5 collaborators", "Basic AI extraction", "7-day replay"], cta: "Start free", featured: false },
-              { name: "Pro", price: "$12", tag: "the sweet spot", features: ["Unlimited sessions", "20 collaborators", "Full AI + summaries", "Unlimited replay", "Node permissions"], cta: "Start Pro trial", featured: true },
-              { name: "Team", price: "$29", tag: "for the org", features: ["Everything in Pro", "Unlimited seats", "SSO + audit log", "Workspace roles", "Priority support"], cta: "Talk to us", featured: false },
-            ].map((p) => (
-              <div key={p.name} className={`relative rounded-2xl border-2 p-6 bg-card ${p.featured ? "border-foreground shadow-[6px_6px_0_hsl(var(--foreground))]" : "border-foreground/15"}`}>
-                {p.featured && <span className="absolute -top-3 left-6 stamp text-coral text-xs bg-card">most picked</span>}
-                <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{p.tag}</div>
-                <h3 className="text-2xl font-bold mt-1">{p.name}</h3>
-                <div className="mt-4 flex items-baseline gap-1">
-                  <span className="text-5xl font-bold tracking-tight">{p.price}</span>
-                  <span className="text-muted-foreground">/seat/mo</span>
-                </div>
-                <ul className="mt-6 space-y-2 text-sm">
-                  {p.features.map(f => (
-                    <li key={f} className="flex items-start gap-2"><span className="text-primary mt-1">✓</span> {f}</li>
-                  ))}
-                </ul>
-                <Button
-                  variant={p.featured ? "paper" : "outline"}
-                  className="w-full mt-6"
-                  onClick={openSignup}
-                >
-                  {p.cta}
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* FINAL CTA */}
       <section id="community" className="py-28 relative overflow-hidden">
         <div className="absolute inset-0 bg-blueprint-grid opacity-50" />
@@ -250,7 +211,6 @@ export default function Home() {
             <Button variant="paper" size="xl" onClick={openSignup}>
               Start free workspace <ArrowRight className="h-4 w-4"/>
             </Button>
-            <Button variant="ghost" size="xl">Book a demo</Button>
           </div>
           <p className="font-hand text-xl text-muted-foreground mt-6">no credit card · no onboarding call · just a canvas</p>
         </div>

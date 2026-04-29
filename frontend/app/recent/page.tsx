@@ -10,14 +10,12 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { roomsApi, tasksApi, workspacesApi, type Room, type Task } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { useDemo } from "@/lib/demoStore";
 
 const thumbs = ["bg-sticky-yellow", "bg-sticky-pink", "bg-sticky-mint", "bg-sticky-sky"];
 const folderColors = ["bg-coral", "bg-warning", "bg-success", "bg-indigo"];
 
 export default function Recent() {
   const { user } = useAuth();
-  const demoSessions = useDemo(s => s.sessions);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [workspaceName, setWorkspaceName] = useState("Workspace");
@@ -62,27 +60,17 @@ export default function Recent() {
 
   const sessionItems = useMemo<SessionItem[]>(() => {
     if (!mounted) return [];
-    if (rooms.length > 0) {
-      return rooms.map((room, i) => ({
-        id: room.id,
-        name: room.name,
-        folder: workspaceName,
-        folderColor: folderColors[i % folderColors.length],
-        thumb: thumbs[i % thumbs.length],
-        live: 0,
-        time: room.createdAt ? formatTime(room.createdAt) : "recently",
-        tasks: tasks.filter(t => t.roomId === room.id).length,
-      }));
-    }
-    return demoSessions
-      .filter(s => !s.trashed)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .map(s => ({
-        id: s.id, name: s.name, folder: s.folder, folderColor: s.folderColor,
-        thumb: s.thumb, live: s.live, time: s.time, tasks: s.tasks,
-        pulse: s.pulse, starred: s.starred, shared: s.shared,
-      }));
-  }, [rooms, tasks, workspaceName, demoSessions, mounted]);
+    return rooms.map((room, i) => ({
+      id: room.id,
+      name: room.name,
+      folder: workspaceName,
+      folderColor: folderColors[i % folderColors.length],
+      thumb: thumbs[i % thumbs.length],
+      live: 0,
+      time: room.createdAt ? formatTime(room.createdAt) : "recently",
+      tasks: tasks.filter(t => t.roomId === room.id).length,
+    }));
+  }, [rooms, tasks, workspaceName, mounted]);
 
   const taskItems = useMemo(() =>
     tasks.slice(0, 6).map(task => ({
@@ -95,10 +83,10 @@ export default function Recent() {
   const metrics = useMemo(() => {
     if (!mounted) return { activeSessions: 0, tasksExtracted: 0 };
     return {
-      activeSessions: rooms.length > 0 ? rooms.length : demoSessions.filter(s => !s.trashed).length,
-      tasksExtracted: tasks.length > 0 ? tasks.length : demoSessions.reduce((sum, s) => sum + s.tasks, 0),
+      activeSessions: rooms.length,
+      tasksExtracted: tasks.length,
     };
-  }, [rooms.length, tasks.length, demoSessions, mounted]);
+  }, [rooms.length, tasks.length, mounted]);
 
   return (
     <div className="flex min-h-screen bg-background">
