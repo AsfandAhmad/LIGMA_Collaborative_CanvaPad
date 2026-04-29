@@ -114,20 +114,24 @@ function EditorContent() {
   const [shareOpen, setShareOpen] = useState(false);
 
   // Convert canvas nodes to Note format (for task board only)
-  const notes: Note[] = canvasNodes.filter((n: any) => n.type === 'sticky').map((node: any) => ({
-    id: node.id,
-    text: node.content?.text || '',
-    intent: node.intent || 'action',
-    color: node.color || intentToColor[node.intent || 'action'],
-    x: node.x || 0,
-    y: node.y || 0,
-    rot: node.rotation || 0,
-    author: {
-      name: node.createdBy,
-      color: getUserColor(node.createdBy),
-    },
-    locked: node.locked,
-    taskStatus: node.taskStatus,
+  const notes: Note[] = canvasNodes.filter((n: any) => n.type === 'sticky').map((node: any) => {
+    const intent = (node.intent || 'action') as Intent;
+    return {
+      id: node.id,
+      text: node.content?.text || '',
+      intent: intent,
+      color: node.color || intentToColor[intent],
+      x: node.x || 0,
+      y: node.y || 0,
+      rot: node.rotation || 0,
+      author: {
+        name: node.createdBy,
+        color: getUserColor(node.createdBy),
+      },
+      locked: node.locked,
+      taskStatus: node.taskStatus,
+    };
+  });
     assignee: node.assignee,
   }));
 
