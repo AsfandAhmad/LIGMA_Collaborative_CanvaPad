@@ -3,21 +3,14 @@
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Play, Users, Clock, ListChecks, Activity, Lock, Sparkles, UserPlus } from "lucide-react";
+import { ArrowLeft, Play, Users, Clock, ListChecks, Activity, Lock, Sparkles, UserPlus, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppSidebar } from "@/components/ligma/AppSidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { demoActions } from "@/lib/demoStore";
-
-const members = [
-  { n: "Maya Kane", role: "Lead", color: "bg-coral", initial: "MK" },
-  { n: "Jin Park", role: "Contributor", color: "bg-indigo", initial: "JP" },
-  { n: "Sam Ortega", role: "Contributor", color: "bg-success", initial: "SO" },
-  { n: "Lia Chen", role: "Viewer", color: "bg-warning", initial: "LC" },
-];
+import { sharingApi, type ShareSettings } from "@/lib/api";
 
 const tabs = ["Overview", "Tasks", "Members", "Activity", "Settings"] as const;
 type Tab = typeof tabs[number];
@@ -30,25 +23,104 @@ function LobbyContent() {
   const [tab, setTab] = useState<Tab>("Overview");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
+  const [shareSettings, setShareSettings] = useState<ShareSettings | null>(null);
+  const [loadingShare, setLoadingShare] = useState(false);
+  const [sendingInvite, setSendingInvite] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  // Mark session as recently opened when lobby loads
+  // Load share settings
   useEffect(() => {
-    if (roomId) {
-      demoActions.touchSession(roomId);
-    }
+    if (!roomId) return;
+    
+    const loadShareSettings = async () => {
+      setLoadingShare(true);
+      try {
+        const settings = await sharingApi.getShareSettings(roomId);
+        setShareSettings(settings);
+      } catch (error) {
+        console.error('Failed to load share settings:', error);
+      } finally {
+        setLoadingShare(false);
+      }
+    };
+
+    loadShareSettings();
   }, [roomId]);
 
-  const share = () => {
-    const url = `${window.location.origin}/lobby?roomId=${roomId}&name=${encodeURIComponent(sessionName)}`;
-    navigator.clipboard?.writeText(url).catch(()=>{});
-    toast({ title: "Share link copied", description: url });
+  const share = async () => {
+    if (!roomId) return;
+
+    try {
+      // Ensure share is created with anyone_with_link access
+      if (!shareSettings?.share) {
+        await sharingApi.updateShareSettings(roomId, {
+          accessType: 'anyone_with_link',
+          linkRole: 'contributor',
+        });
+        
+        // Reload settings to get the token
+        const newSettings = await sharingApi.getShareSettings(roomId);
+        setShareSettings(newSettings);
+        
+        if (newSettings.share) {
+          const url = sharingApi.getShareLink(roomId, newSettings.share.token);
+          await navigator.clipboard.writeText(url);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+          toast({ title: "Share link copied", description: "Anyone with this link can join as a contributor." });
+        }
+      } else {
+        const url = sharingApi.getShareLink(roomId, shareSettings.share.token);
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        toast({ title: "Share link copied", description: "Anyone with this link can join." });
+      }
+    } catch (error: any) {
+      toast({ 
+        title: "Failed to create share link", 
+        description: error.message || "Please try again.",
+        variant: "destructive" 
+      });
+    }
   };
 
-  const sendInvite = () => {
-    if (!inviteEmail) return;
-    toast({ title: "Invite sent", description: `${inviteEmail} will get an email.` });
-    setInviteEmail("");
-    setInviteOpen(false);
+  const sendInvite = async () => {
+    if (!inviteEmail || !roomId) return;
+    
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(inviteEmail)) {
+      toast({ 
+        title: "Invalid email", 
+        description: "Please enter a valid email address.",
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    setSendingInvite(true);
+    try {
+      await sharingApi.addInvites(roomId, [inviteEmail], 'contributor');
+      toast({ 
+        title: "Invite sent", 
+        description: `${inviteEmail} has been invited as a contributor.` 
+      });
+      setInviteEmail("");
+      setInviteOpen(false);
+      
+      // Reload share settings to show new invite
+      const newSettings = await sharingApi.getShareSettings(roomId);
+      setShareSettings(newSettings);
+    } catch (error: any) {
+      toast({ 
+        title: "Failed to send invite", 
+        description: error.message || "Please try again.",
+        variant: "destructive" 
+      });
+    } finally {
+      setSendingInvite(false);
+    }
   };
 
   return (
@@ -64,8 +136,18 @@ function LobbyContent() {
               <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" /> live · 1 in room
             </span>
             <div className="ml-auto flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={share}>Share</Button>
-              <Button variant="outline" size="sm" onClick={() => setInviteOpen(true)}><UserPlus className="h-3.5 w-3.5"/> Invite</Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={share}
+                disabled={loadingShare}
+              >
+                {copied ? <Check className="h-3.5 w-3.5"/> : <Copy className="h-3.5 w-3.5"/>}
+                {copied ? "Copied!" : "Share"}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setInviteOpen(true)}>
+                <UserPlus className="h-3.5 w-3.5"/> Invite
+              </Button>
               <Button asChild variant="paper" size="sm">
                 <Link href={`/editor?roomId=${roomId}`}><Play className="h-3.5 w-3.5"/> Enter session</Link>
               </Button>
@@ -134,15 +216,31 @@ function LobbyContent() {
                 <Button variant="ghost" size="sm" onClick={() => setInviteOpen(true)}>Invite</Button>
               </div>
               <div className="space-y-2">
-                {members.map(m => (
-                  <div key={m.n} className="flex items-center gap-3">
-                    <div className={`h-8 w-8 rounded-full ${m.color} text-background flex items-center justify-center text-xs font-bold`}>{m.initial}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{m.n}</div>
+                {shareSettings && shareSettings.invites.length > 0 ? (
+                  shareSettings.invites.map(invite => (
+                    <div key={invite.id} className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-indigo text-background flex items-center justify-center text-xs font-bold">
+                        {invite.email.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{invite.email}</div>
+                      </div>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                        {invite.role}
+                      </span>
+                      <span className={cn(
+                        "text-[10px] font-mono uppercase tracking-wider border border-border rounded px-1.5 py-0.5",
+                        invite.status === 'accepted' ? "text-success border-success/30" : "text-warning border-warning/30"
+                      )}>
+                        {invite.status}
+                      </span>
                     </div>
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground border border-border rounded px-1.5 py-0.5">{m.role}</span>
+                  ))
+                ) : (
+                  <div className="text-sm text-muted-foreground py-4 text-center">
+                    No members yet. Click "Invite" to add collaborators.
                   </div>
-                ))}
+                )}
               </div>
             </div>
 
@@ -178,18 +276,39 @@ function LobbyContent() {
               </div>
               <Button variant="paper" onClick={() => setInviteOpen(true)}><UserPlus className="h-3.5 w-3.5"/> Invite</Button>
             </div>
-            <div className="rounded-2xl border-2 border-foreground/15 bg-card divide-y divide-border">
-              {members.map(m => (
-                <div key={m.n} className="flex items-center gap-3 p-4">
-                  <div className={`h-10 w-10 rounded-full ${m.color} text-background flex items-center justify-center text-sm font-bold`}>{m.initial}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium">{m.n}</div>
-                    <div className="text-xs text-muted-foreground font-mono">@{m.n.toLowerCase().replace(" ", "")}</div>
+            {shareSettings && shareSettings.invites.length > 0 ? (
+              <div className="rounded-2xl border-2 border-foreground/15 bg-card divide-y divide-border">
+                {shareSettings.invites.map(invite => (
+                  <div key={invite.id} className="flex items-center gap-3 p-4">
+                    <div className="h-10 w-10 rounded-full bg-indigo text-background flex items-center justify-center text-sm font-bold">
+                      {invite.email.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium">{invite.email}</div>
+                      <div className="text-xs text-muted-foreground font-mono">
+                        Invited {new Date(invite.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                      {invite.role}
+                    </span>
+                    <span className={cn(
+                      "text-[10px] font-mono uppercase tracking-wider border border-border rounded px-1.5 py-0.5",
+                      invite.status === 'accepted' ? "text-success border-success/30" : "text-warning border-warning/30"
+                    )}>
+                      {invite.status}
+                    </span>
                   </div>
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground border border-border rounded px-1.5 py-0.5">{m.role}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border-2 border-dashed border-foreground/20 bg-card p-12 text-center">
+                <p className="text-sm text-muted-foreground mb-3">No members yet</p>
+                <Button variant="paper" onClick={() => setInviteOpen(true)}>
+                  <UserPlus className="h-3.5 w-3.5"/> Invite your first member
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
@@ -234,10 +353,22 @@ function LobbyContent() {
             <DialogTitle>Invite to {sessionName}</DialogTitle>
             <DialogDescription>Add a teammate by email. They'll join as a Contributor.</DialogDescription>
           </DialogHeader>
-          <Input type="email" placeholder="teammate@studio.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} onKeyDown={e => { if (e.key === "Enter") sendInvite(); }}/>
+          <Input 
+            type="email" 
+            placeholder="teammate@studio.com" 
+            value={inviteEmail} 
+            onChange={e => setInviteEmail(e.target.value)} 
+            onKeyDown={e => { if (e.key === "Enter" && !sendingInvite) sendInvite(); }}
+            disabled={sendingInvite}
+          />
           <DialogFooter>
-            <Button variant="ghost" onClick={share}>Copy link instead</Button>
-            <Button variant="paper" onClick={sendInvite}>Send invite</Button>
+            <Button variant="ghost" onClick={share} disabled={loadingShare}>
+              {copied ? <Check className="h-3.5 w-3.5"/> : <Copy className="h-3.5 w-3.5"/>}
+              {copied ? "Copied!" : "Copy link instead"}
+            </Button>
+            <Button variant="paper" onClick={sendInvite} disabled={sendingInvite || !inviteEmail}>
+              {sendingInvite ? "Sending..." : "Send invite"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

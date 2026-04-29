@@ -311,6 +311,93 @@ export const workspacesApi = {
 };
 
 // ============================================================================
+// SHARING API
+// ============================================================================
+
+export interface ShareSettings {
+  share: {
+    id: string;
+    room_id: string;
+    access_type: 'anyone_with_link' | 'restricted';
+    link_role: 'viewer' | 'contributor' | 'lead';
+    token: string;
+    expires_at: string | null;
+    created_at: string;
+  } | null;
+  invites: Array<{
+    id: string;
+    email: string;
+    role: string;
+    status: string;
+    user_id: string | null;
+    created_at: string;
+  }>;
+}
+
+export const sharingApi = {
+  getShareSettings: async (roomId: string): Promise<ShareSettings> => {
+    try {
+      const res = await fetchWithAuth(`/api/rooms/${roomId}/share`);
+      return res ?? { share: null, invites: [] };
+    } catch {
+      return { share: null, invites: [] };
+    }
+  },
+
+  updateShareSettings: async (
+    roomId: string,
+    settings: {
+      accessType?: 'anyone_with_link' | 'restricted';
+      linkRole?: 'viewer' | 'contributor' | 'lead';
+    }
+  ): Promise<any> => {
+    return fetchWithAuth(`/api/rooms/${roomId}/share`, {
+      method: 'POST',
+      body: JSON.stringify(settings),
+    });
+  },
+
+  addInvites: async (
+    roomId: string,
+    emails: string[],
+    role: 'viewer' | 'contributor' | 'lead' = 'viewer'
+  ): Promise<any> => {
+    return fetchWithAuth(`/api/rooms/${roomId}/share/invites`, {
+      method: 'POST',
+      body: JSON.stringify({ emails, role }),
+    });
+  },
+
+  revokeInvite: async (roomId: string, inviteId: string): Promise<any> => {
+    return fetchWithAuth(`/api/rooms/${roomId}/share/invites/${inviteId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  validateShareToken: async (token: string): Promise<{ roomId: string; role: string } | null> => {
+    try {
+      return await fetchWithAuth(`/api/share/validate/${token}`);
+    } catch {
+      return null;
+    }
+  },
+
+  getSharedWithMe: async (): Promise<Room[]> => {
+    try {
+      const res = await fetchWithAuth('/api/share/shared-with-me');
+      return res.rooms ?? [];
+    } catch {
+      return [];
+    }
+  },
+
+  getShareLink: (roomId: string, token: string): string => {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    return `${baseUrl}/lobby?roomId=${roomId}&token=${token}`;
+  },
+};
+
+// ============================================================================
 // EXPORT ALL
 // ============================================================================
 
@@ -319,4 +406,5 @@ export default {
   canvas: canvasApi,
   tasks: tasksApi,
   rooms: roomsApi,
+  sharing: sharingApi,
 };
