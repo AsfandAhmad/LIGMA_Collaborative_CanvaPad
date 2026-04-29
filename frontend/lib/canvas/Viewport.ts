@@ -69,6 +69,14 @@ export class Viewport {
     this.state.scrollX += deltaX / this.state.zoom;
     this.state.scrollY += deltaY / this.state.zoom;
   }
+
+  /**
+   * Pan the viewport to an absolute scroll position (scene space)
+   */
+  panTo(scrollX: number, scrollY: number): void {
+    this.state.scrollX = scrollX;
+    this.state.scrollY = scrollY;
+  }
   
   /**
    * Zoom in/out around a specific point (usually mouse position)
@@ -191,6 +199,20 @@ export class Viewport {
    */
   getZoom(): number {
     return this.state.zoom;
+  }
+
+  /**
+   * Get current canvas width
+   */
+  getWidth(): number {
+    return this.canvasWidth;
+  }
+
+  /**
+   * Get current canvas height
+   */
+  getHeight(): number {
+    return this.canvasHeight;
   }
   
   /**

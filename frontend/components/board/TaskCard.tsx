@@ -11,18 +11,7 @@ import {
 } from "@/components/ui/select";
 import { ExternalLink, User } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface Task {
-  id: string;
-  text: string;
-  status: "todo" | "in_progress" | "done";
-  nodeId: string;
-  authorId: string;
-  authorName?: string;
-  roomId: string;
-  createdAt: string;
-  updatedAt: string;
-}
+import type { Task } from "@/lib/api";
 
 interface TaskCardProps {
   task: Task;
@@ -49,6 +38,7 @@ export function TaskCard({ task, onStatusChange, onClick, className }: TaskCardP
   };
 
   const timeAgo = getTimeAgo(new Date(task.createdAt));
+  const authorName = task.author?.name || "Unknown";
 
   return (
     <Card
@@ -70,7 +60,7 @@ export function TaskCard({ task, onStatusChange, onClick, className }: TaskCardP
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <User className="h-3 w-3" />
             <span className="truncate max-w-[100px]">
-              {task.authorName || "Unknown"}
+              {authorName}
             </span>
           </div>
 

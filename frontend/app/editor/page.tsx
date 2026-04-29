@@ -18,6 +18,7 @@ import { usePresence } from "@/lib/hooks/usePresence";
 import { useAuth } from "@/lib/auth-context";
 import { ShareModal } from "@/components/ligma/ShareModal";
 import { useRoleSync } from "@/lib/hooks/useRoleSync";
+import { useTaskBoard } from "@/lib/hooks/useTaskBoard";
 
 type Intent = "action" | "decision" | "question" | "reference";
 type Note = {
@@ -169,13 +170,13 @@ function EditorContent() {
         {liveCursors && liveCursors.length > 0 && (
           <div className="flex -space-x-1.5 ml-2">
             {liveCursors.slice(0, 4).map((cursor, i) => {
-              const initial = cursor.name?.[0]?.toUpperCase() || '?';
+              const initial = cursor.userName?.[0]?.toUpperCase() || '?';
               const colorClass = userColors[i % userColors.length];
               return (
                 <span 
                   key={cursor.userId || i} 
                   className={`h-7 w-7 rounded-full ${colorClass} text-background border-2 border-card flex items-center justify-center text-[10px] font-bold`}
-                  title={cursor.name || 'Anonymous'}
+                  title={cursor.userName || 'Anonymous'}
                 >
                   {initial}
                 </span>
