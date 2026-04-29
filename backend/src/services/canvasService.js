@@ -151,7 +151,51 @@ async function exportCanvasSummary(roomId) {
 
   // Prepare node content for summarization
   const nodeContents = nodes.map((node, index) => {
-    return `Node ${index + 1} (${node.type || 'unknown'}): ${node.text || node.content || 'No content'}`;
+    // Extract text from different node formats
+    let text = 'No content';
+    
+    // Try to get text from various possible locations
+    if (node.text) {
+      text = node.text;
+    } else if (node.content) {
+      // Handle content as object
+      if (typeof node.content === 'string') {
+        try {
+          // Try to parse if it's a JSON string
+          const parsed = JSON.parse(node.content);
+          text = parsed.text || parsed.value || parsed.label || node.content;
+        } catch {
+          text = node.content;
+        }
+      } else if (typeof node.content === 'object' && node.content !== null) {
+        // Extract text from content object
+        text = node.content.text || 
+               node.content.value || 
+               node.content.label || 
+               node.content.content ||
+               'No text content';
+      }
+    }
+    
+    // Build node description
+    const nodeType = node.type || 'unknown';
+    const nodeInfo = [];
+    
+    if (text && text !== 'No content' && text !== 'No text content') {
+      nodeInfo.push(`Text: "${text}"`);
+    }
+    
+    if (node.intent) {
+      nodeInfo.push(`Intent: ${node.intent}`);
+    }
+    
+    if (node.taskStatus) {
+      nodeInfo.push(`Task Status: ${node.taskStatus}`);
+    }
+    
+    const description = nodeInfo.length > 0 ? nodeInfo.join(', ') : 'Empty node';
+    
+    return `Node ${index + 1} (${nodeType}): ${description}`;
   }).join('\n\n');
 
   try {

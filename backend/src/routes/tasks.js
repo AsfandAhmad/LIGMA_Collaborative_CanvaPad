@@ -1,108 +1,229 @@
-// GET /api/tasks/:roomId  → return all tasks for a room
-// Tasks are READ-ONLY here — they are created by intentService automatically
-// PATCH /api/tasks/:taskId/status → update task status (todo/done)
+// Tasks API Routes
+// GET    /api/tasks/:roomId          → get all tasks for a room
+// PATCH  /api/tasks/:taskId          → update task status
+// DELETE /api/tasks/:taskId          → delete a task
 
 const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
-const { getSupabaseClientForToken } = require('../utils/supabase');
+const { getSupabaseServiceClient } = require('../utils/supabase');
+const { broadcast } = require('../ws/wsServer');
+const prisma = require('../db/prisma');
 
 // Get all tasks for a room
-// Allow unauthenticated access - return empty array if no auth
-router.get('/:roomId', async (req, res) => {
+router.get('/:roomId', authenticateToken, async (req, res) => {
   try {
     const { roomId } = req.params;
+    
+    // Try Prisma first (faster and more reliable)
+    try {
+      const tasks = await prisma.task.findMany({
+        where: { roomId },
+        include: {
+          author: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+      });
 
-    // Try to get auth token, but don't require it
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+      const formattedTasks = tasks.map(task => ({
+        id: task.id,
+        text: task.text,
+        status: task.status,
+        nodeId: task.nodeId,
+        authorId: task.authorId,
+        authorName: task.author?.name || task.author?.email || 'Unknown',
+        roomId: task.roomId,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+      }));
 
-    if (!token) {
-      // No auth - return empty tasks (guest users don't see tasks)
-      return res.json({ tasks: [] });
+      return res.json({ tasks: formattedTasks });
+    } catch (prismaError) {
+      console.warn('[Tasks] Prisma failed, falling back to Supabase:', prismaError.message);
     }
 
-    const client = getSupabaseClientForToken(token);
-    if (!client) {
-      return res.json({ tasks: [] });
+    // Fallback to Supabase
+    const serviceClient = getSupabaseServiceClient();
+    
+    if (!serviceClient) {
+      return res.status(500).json({ error: 'Database client not available' });
     }
 
-    // Try with user join first, fall back to simple query if join fails
-    let data, error;
-
-    ({ data, error } = await client
+    // Fetch tasks with author information
+    const { data: tasks, error } = await serviceClient
       .from('tasks')
       .select(`
         id,
-        room_id,
-        source_node_id,
-        assigned_to,
-        created_by,
-        title,
+        text,
         status,
-        priority,
-        ai_intent,
-        due_date,
+        node_id,
+        author_id,
+        room_id,
         created_at,
-        updated_at
+        updated_at,
+        users:author_id (
+          id,
+          email,
+          user_metadata
+        )
       `)
       .eq('room_id', roomId)
-      .order('created_at', { ascending: false }));
+      .order('created_at', { ascending: false });
 
     if (error) {
-      // Table may not exist yet — return empty gracefully
-      console.warn('Tasks query error (returning empty):', error.message);
-      return res.json({ tasks: [] });
+      console.error('Failed to fetch tasks:', error);
+      return res.status(500).json({ error: 'Failed to fetch tasks' });
     }
 
-    const tasks = (data || []).map(task => ({
+    // Format tasks with author name
+    const formattedTasks = (tasks || []).map(task => ({
       id: task.id,
-      roomId: task.room_id,
-      nodeId: task.source_node_id,
-      text: task.title,
+      text: task.text,
       status: task.status,
-      authorId: task.created_by,
+      nodeId: task.node_id,
+      authorId: task.author_id,
+      authorName: task.users?.user_metadata?.display_name || 
+                  task.users?.user_metadata?.full_name || 
+                  task.users?.email || 
+                  'Unknown',
+      roomId: task.room_id,
       createdAt: task.created_at,
+      updatedAt: task.updated_at,
     }));
 
-    res.json({ tasks });
+    res.json({ tasks: formattedTasks });
   } catch (error) {
     console.error('Get tasks error:', error);
-    // Never 500 — return empty tasks so the UI still loads
-    res.json({ tasks: [] });
+    res.status(500).json({ error: 'Failed to fetch tasks' });
   }
 });
 
-// Update task status
-router.patch('/:taskId/status', authenticateToken, async (req, res) => {
+// Update task status (supports both /api/tasks/:taskId and /api/tasks/:taskId/status)
+router.patch('/:taskId/status', authenticateToken, updateTaskStatusHandler);
+router.patch('/:taskId', authenticateToken, updateTaskStatusHandler);
+
+async function updateTaskStatusHandler(req, res) {
   try {
     const { taskId } = req.params;
     const { status } = req.body;
 
-    const validStatuses = ['todo', 'in_progress', 'done'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ 
-        error: 'Invalid status',
-        valid: validStatuses,
-      });
+    if (!['todo', 'in_progress', 'done'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
     }
 
-    const client = getSupabaseClientForToken(req.accessToken);
-    const { data, error } = await client
-      .from('tasks')
-      .update({ status })
-      .eq('id', taskId)
-      .select('*')
-      .maybeSingle();
+    // Try Prisma first
+    try {
+      const task = await prisma.task.update({
+        where: { id: taskId },
+        data: { 
+          status,
+          updatedAt: new Date(),
+        },
+        include: {
+          author: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            }
+          }
+        }
+      });
 
-    if (error || !data) {
+      const formattedTask = {
+        id: task.id,
+        text: task.text,
+        status: task.status,
+        nodeId: task.nodeId,
+        authorId: task.authorId,
+        authorName: task.author?.name || task.author?.email || 'Unknown',
+        roomId: task.roomId,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+      };
+
+      // Broadcast update to all users in room via WebSocket
+      broadcast(task.roomId, {
+        type: 'task:updated',
+        task: formattedTask,
+      });
+
+      return res.json({ task: formattedTask });
+    } catch (prismaError) {
+      console.warn('[Tasks] Prisma update failed, falling back to Supabase:', prismaError.message);
+    }
+
+    // Fallback to Supabase
+    const serviceClient = getSupabaseServiceClient();
+    
+    if (!serviceClient) {
+      return res.status(500).json({ error: 'Database client not available' });
+    }
+
+    const { data, error } = await serviceClient
+      .from('tasks')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', taskId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Failed to update task status:', error);
       return res.status(500).json({ error: 'Failed to update task status' });
     }
 
-    res.json({ success: true, task: data });
+    // Broadcast update via WebSocket
+    if (data && data.room_id) {
+      broadcast(data.room_id, {
+        type: 'task:updated',
+        task: {
+          id: data.id,
+          text: data.text,
+          status: data.status,
+          nodeId: data.node_id,
+          roomId: data.room_id,
+          updatedAt: data.updated_at,
+        },
+      });
+    }
+
+    res.json({ task: data });
   } catch (error) {
     console.error('Update task status error:', error);
     res.status(500).json({ error: 'Failed to update task status' });
+  }
+}
+
+// Delete a task
+router.delete('/:taskId', authenticateToken, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const serviceClient = getSupabaseServiceClient();
+    
+    if (!serviceClient) {
+      return res.status(500).json({ error: 'Database client not available' });
+    }
+
+    const { error } = await serviceClient
+      .from('tasks')
+      .delete()
+      .eq('id', taskId);
+
+    if (error) {
+      console.error('Failed to delete task:', error);
+      return res.status(500).json({ error: 'Failed to delete task' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete task error:', error);
+    res.status(500).json({ error: 'Failed to delete task' });
   }
 });
 

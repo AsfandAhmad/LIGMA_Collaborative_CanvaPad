@@ -16,7 +16,7 @@ import { toast } from "@/hooks/use-toast";
 import { useCanvas } from "@/lib/hooks/useCanvas";
 import { CanvasWrapper } from "@/components/canvas/CanvasWrapper";
 import { usePresence } from "@/lib/hooks/usePresence";
-import { useTasks } from "@/lib/hooks/useTasks";
+import { useTaskBoard } from "@/lib/hooks/useTaskBoard";
 import { useAuth } from "@/lib/auth-context";
 import { ShareModal } from "@/components/ligma/ShareModal";
 
@@ -106,12 +106,20 @@ function EditorContent() {
     updateCursor,
   } = usePresence({ roomId });
 
-  // Tasks from backend
-  const { tasks } = useTasks({ roomId });
+  // Tasks from backend with real-time WebSocket updates
+  const { tasks, updateTaskStatus: updateTaskStatusAPI } = useTaskBoard({ roomId });
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode, setMode] = useState<"canvas" | "split" | "review">("split");
   const [shareOpen, setShareOpen] = useState(false);
+
+  // Scroll canvas to a specific node
+  const scrollToNode = useCallback((nodeId: string) => {
+    // Dispatch custom event that CanvasWrapper will listen to
+    window.dispatchEvent(new CustomEvent("canvas:scrollToNode", {
+      detail: { nodeId }
+    }));
+  }, []);
 
   // Convert canvas nodes to Note format (for task board only)
   const notes: Note[] = canvasNodes.filter((n: any) => n.type === 'sticky').map((node: any) => {
@@ -194,6 +202,16 @@ function EditorContent() {
         <section 
           className={cn("relative bg-paper overflow-hidden", mode === "split" ? "flex-1" : "flex-1")}
         >
+          {/* Viewer Read-Only Banner */}
+          {user?.role === 'viewer' || user?.role === 'Viewer' ? (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+              <div className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium border-2 border-warning/30 bg-warning/10 text-warning backdrop-blur">
+                <Lock className="h-4 w-4" />
+                View-Only Mode — You cannot edit this canvas
+              </div>
+            </div>
+          ) : null}
+          
           <CanvasWrapper
             nodes={canvasNodes as any}
             onNodeAdd={addNode as any}
@@ -265,20 +283,58 @@ function EditorContent() {
                           </button>
                         );
                       })}
-                      {backendItems.map(t => (
-                        <div key={t.id} className="w-full text-left rounded-lg border-2 p-3 bg-background border-foreground/15">
-                          <div className="flex items-start gap-2">
-                            <Icon className={cn("h-4 w-4 mt-0.5 shrink-0", col === "done" ? "text-success" : "text-muted-foreground")}/>
-                            <div className="flex-1 min-w-0">
-                              <div className={cn("text-[13px] font-medium leading-snug", col === "done" && "line-through text-muted-foreground")}>{t.text}</div>
-                              <div className="flex items-center gap-2 mt-1.5">
-                                <span className="text-[10px] font-mono text-muted-foreground">@{t.author?.name?.toLowerCase() ?? 'unknown'}</span>
-                                <span className="ml-auto text-[10px] font-mono text-success flex items-center gap-0.5"><Zap className="h-2.5 w-2.5"/>AI task</span>
+                      {backendItems.map(t => {
+                        const isLinked = selectedId === t.nodeId;
+                        return (
+                          <div key={t.id} className="w-full rounded-lg border-2 p-3 bg-background border-foreground/15 space-y-2">
+                            <div className="flex items-start gap-2">
+                              <Icon className={cn("h-4 w-4 mt-0.5 shrink-0", col === "done" ? "text-success" : "text-muted-foreground")}/>
+                              <div className="flex-1 min-w-0">
+                                <div className={cn("text-[13px] font-medium leading-snug", col === "done" && "line-through text-muted-foreground")}>{t.text}</div>
+                                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                  <span className="text-[10px] font-mono text-muted-foreground">@{t.authorName?.toLowerCase() ?? 'unknown'}</span>
+                                  <span className="ml-auto text-[10px] font-mono text-success flex items-center gap-0.5"><Zap className="h-2.5 w-2.5"/>AI task</span>
+                                </div>
                               </div>
                             </div>
+                            {/* Action buttons */}
+                            <div className="flex gap-2">
+                              {t.nodeId && (
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="flex-1 text-xs h-7"
+                                  onClick={() => {
+                                    scrollToNode(t.nodeId);
+                                    setSelectedId(t.nodeId);
+                                    toast({ title: "Scrolling to node", description: "Canvas will pan to the linked sticky note" });
+                                  }}
+                                >
+                                  <ChevronRight className="h-3 w-3 mr-1"/> Go to Node
+                                </Button>
+                              )}
+                              {user?.role !== 'viewer' && col !== 'done' && (
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="text-xs h-7"
+                                  onClick={async () => {
+                                    try {
+                                      const nextStatus = col === 'todo' ? 'in_progress' : 'done';
+                                      await updateTaskStatusAPI(t.id, nextStatus);
+                                      toast({ title: "Task updated", description: `Moved to ${nextStatus.replace('_', ' ')}` });
+                                    } catch (error) {
+                                      toast({ title: "Failed to update task", variant: "destructive" });
+                                    }
+                                  }}
+                                >
+                                  {col === 'todo' ? 'Start' : 'Complete'}
+                                </Button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                       {nodeItems.length === 0 && backendItems.length === 0 && (
                         <div className="text-xs text-muted-foreground italic px-3 py-2 border border-dashed border-border rounded-md">no tasks here</div>
                       )}
@@ -390,6 +446,47 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
 }
 
 function RoomInsights() {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const roomId = searchParams?.get('roomId');
+
+  const handleGenerateSummary = async () => {
+    if (!roomId) {
+      toast({ title: "Error", description: "No room ID found", variant: "destructive" });
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      
+      const response = await fetch(`${API_URL}/api/canvas/${roomId}/export`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate summary');
+      }
+
+      const summaryText = await response.text();
+      setSummary(summaryText);
+      toast({ title: "Success", description: "Session summary generated!" });
+    } catch (error: any) {
+      console.error('Summary generation error:', error);
+      toast({ 
+        title: "Error", 
+        description: error.message || "Failed to generate summary", 
+        variant: "destructive" 
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   return (
     <>
       <div className="px-4 py-3 border-b border-foreground/10">
@@ -414,7 +511,24 @@ function RoomInsights() {
             <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 rounded-full bg-success shrink-0"/>RBAC permissions</li>
           </ul>
         </div>
-        <Button variant="paper" className="w-full"><Sparkles className="h-3.5 w-3.5"/> Generate session summary</Button>
+        <Button 
+          variant="paper" 
+          className="w-full" 
+          onClick={handleGenerateSummary}
+          disabled={isGenerating}
+        >
+          <Sparkles className="h-3.5 w-3.5"/> 
+          {isGenerating ? "Generating..." : "Generate session summary"}
+        </Button>
+
+        {summary && (
+          <div className="mt-4 p-3 rounded-lg border border-foreground/10 bg-muted/30 max-h-96 overflow-y-auto">
+            <div className="zine-label mb-2">AI Summary</div>
+            <div className="prose prose-sm max-w-none text-xs whitespace-pre-wrap">
+              {summary}
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

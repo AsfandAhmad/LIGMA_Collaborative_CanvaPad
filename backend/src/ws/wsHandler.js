@@ -83,9 +83,9 @@ async function handleNodeCreate(ws, user, payload, roomId, broadcast) {
       return sendError(ws, `Invalid payload: ${validation.errors.join(', ')}`);
     }
 
-    // Viewers cannot create nodes
-    if (user.role === 'Viewer') {
-      return sendError(ws, 'Viewers cannot create nodes');
+    // CRITICAL: Viewers cannot create nodes
+    if (user.role === 'viewer' || user.role === 'Viewer') {
+      return sendError(ws, 'FORBIDDEN: Viewers cannot edit the canvas');
     }
 
     const nodeId = payload.nodeId || generateNodeId();
@@ -123,6 +123,11 @@ async function handleNodeUpdate(ws, user, nodeId, payload, roomId, broadcast) {
     const validation = isValidNodePayload(payload, 'update');
     if (!validation.valid) {
       return sendError(ws, `Invalid payload: ${validation.errors.join(', ')}`);
+    }
+
+    // CRITICAL: Viewers cannot update nodes
+    if (user.role === 'viewer' || user.role === 'Viewer') {
+      return sendError(ws, 'FORBIDDEN: Viewers cannot edit the canvas');
     }
 
     // RBAC check - can user mutate this node?
@@ -163,6 +168,11 @@ async function handleNodeUpdate(ws, user, nodeId, payload, roomId, broadcast) {
  */
 async function handleNodeDelete(ws, user, nodeId, roomId, broadcast) {
   try {
+    // CRITICAL: Viewers cannot delete nodes
+    if (user.role === 'viewer' || user.role === 'Viewer') {
+      return sendError(ws, 'FORBIDDEN: Viewers cannot edit the canvas');
+    }
+
     // RBAC check
     const canMutate = await rbacService.canMutate(user.id, nodeId, 'delete');
     
@@ -198,6 +208,11 @@ async function handleNodeMove(ws, user, nodeId, payload, roomId, broadcast) {
     const validation = isValidNodePayload(payload, 'move');
     if (!validation.valid) {
       return sendError(ws, `Invalid payload: ${validation.errors.join(', ')}`);
+    }
+
+    // CRITICAL: Viewers cannot move nodes
+    if (user.role === 'viewer' || user.role === 'Viewer') {
+      return sendError(ws, 'FORBIDDEN: Viewers cannot edit the canvas');
     }
 
     // RBAC check

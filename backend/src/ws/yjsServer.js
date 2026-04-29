@@ -208,7 +208,13 @@ function getYDoc(roomId) {
  * 
  * Requirements: 1.6, 2.1-2.6
  */
-async function checkYjsMutations(mutations, userId, roomId, accessToken) {
+async function checkYjsMutations(mutations, userId, roomId, accessToken, userRole) {
+  // CRITICAL: Check if user is a Viewer - Viewers cannot edit anything
+  if (userRole === 'viewer' || userRole === 'Viewer') {
+    console.warn(`[RBAC] User ${userId} is a Viewer - blocking all mutations`);
+    return false;
+  }
+
   for (const mutation of mutations) {
     if (!mutation.nodeId) continue;
 
@@ -289,6 +295,9 @@ async function checkYjsMutations(mutations, userId, roomId, accessToken) {
  * @param {Y.Doc} ydoc - The Y.Doc instance to read current state from
  */
 async function logYjsMutations(mutations, roomId, userId, ydoc) {
+  const aiService = require('../services/aiService');
+  const { broadcast } = require('./wsServer');
+  
   for (const mutation of mutations) {
     if (!mutation.nodeId) continue;
 
@@ -325,6 +334,74 @@ async function logYjsMutations(mutations, roomId, userId, ydoc) {
             reason: error.message,
           });
         });
+    }
+
+    // NEW: AI-powered intent classification + auto task creation
+    // Only for sticky notes with text content
+    if (mutation.payload && mutation.payload.text && mutation.payload.type === 'sticky') {
+      // Run asynchronously without blocking
+      setImmediate(async () => {
+        try {
+          const text = mutation.payload.text;
+          const intent = await aiService.classifyNodeIntent(text);
+          
+          console.log(`[AI] Classified node ${mutation.nodeId} as: ${intent}`);
+          
+          // Log intent classification event
+          await eventService.insertEvent('NODE_INTENT_CLASSIFIED', {
+            nodeId: mutation.nodeId,
+            intent,
+          }, userId, roomId);
+          
+          // If intent is "Action", create a task automatically
+          if (intent === 'Action') {
+            // Check if task already exists for this node
+            const existing = await prisma.task.findFirst({
+              where: { nodeId: mutation.nodeId }
+            });
+            
+            if (!existing) {
+              // Create task in database
+              const task = await prisma.task.create({
+                data: {
+                  text: text.substring(0, 100), // Limit title length
+                  authorId: userId,
+                  nodeId: mutation.nodeId,
+                  roomId: roomId,
+                  status: 'todo',
+                },
+                include: {
+                  author: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true,
+                    }
+                  }
+                }
+              });
+              
+              console.log(`[AI] Auto-created task ${task.id} for node ${mutation.nodeId}`);
+              
+              // Broadcast task creation to all users in room via /ws WebSocket
+              broadcast(roomId, {
+                type: 'task:created',
+                task: {
+                  id: task.id,
+                  text: task.text,
+                  status: task.status,
+                  nodeId: task.nodeId,
+                  authorId: task.authorId,
+                  authorName: task.author?.name || task.author?.email || 'Unknown',
+                  createdAt: task.createdAt,
+                }
+              });
+            }
+          }
+        } catch (error) {
+          console.error('[AI] Failed to classify intent or create task:', error.message);
+        }
+      });
     }
   }
 
@@ -484,7 +561,7 @@ async function handleYjsConnection(ws, req) {
           const mutations = decodeYjsUpdate(update, prevStateUpdate);
           console.log(`[Yjs] Decoded ${mutations.length} mutations from SyncStep2`);
           
-          const allowed = await checkYjsMutations(mutations, userId, roomId, ws.accessToken);
+          const allowed = await checkYjsMutations(mutations, userId, roomId, ws.accessToken, ws.userRole);
           
           if (!allowed) {
             // RBAC violation - do NOT apply update, do NOT broadcast
@@ -516,7 +593,7 @@ async function handleYjsConnection(ws, req) {
           const mutations = decodeYjsUpdate(update, prevStateUpdate);
           console.log(`[Yjs] Decoded ${mutations.length} mutations from incremental update`);
           
-          const allowed = await checkYjsMutations(mutations, userId, roomId, ws.accessToken);
+          const allowed = await checkYjsMutations(mutations, userId, roomId, ws.accessToken, ws.userRole);
           
           if (!allowed) {
             // RBAC violation - do NOT apply update, do NOT broadcast

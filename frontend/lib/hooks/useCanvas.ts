@@ -161,6 +161,13 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
       console.error('[useCanvas] Cannot add node - syncManager not initialized');
       return '';
     }
+    
+    // Block if user is a viewer
+    if (user?.role === 'viewer' || user?.role === 'Viewer') {
+      console.warn('[useCanvas] Viewers cannot add nodes');
+      return '';
+    }
+    
     const nodeId = `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const fullNode: Omit<CanvasNode, 'id'> = {
       ...node,
@@ -172,32 +179,67 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
   }, [user]);
 
   const updateNode = useCallback((nodeId: string, updates: Partial<Omit<CanvasNode, 'id'>>) => {
+    // Block if user is a viewer
+    if (user?.role === 'viewer' || user?.role === 'Viewer') {
+      console.warn('[useCanvas] Viewers cannot update nodes');
+      return;
+    }
     syncManagerRef.current?.updateNode(nodeId, updates as Partial<CanvasNode>);
-  }, []);
+  }, [user]);
 
   const deleteNode = useCallback((nodeId: string) => {
+    // Block if user is a viewer
+    if (user?.role === 'viewer' || user?.role === 'Viewer') {
+      console.warn('[useCanvas] Viewers cannot delete nodes');
+      return;
+    }
     syncManagerRef.current?.deleteNode(nodeId);
-  }, []);
+  }, [user]);
 
   const updateNodePosition = useCallback((nodeId: string, position: { x: number; y: number }) => {
+    // Block if user is a viewer
+    if (user?.role === 'viewer' || user?.role === 'Viewer') {
+      console.warn('[useCanvas] Viewers cannot move nodes');
+      return;
+    }
     syncManagerRef.current?.updateNodePosition(nodeId, position);
-  }, []);
+  }, [user]);
 
   const updateNodeContent = useCallback((nodeId: string, content: any) => {
+    // Block if user is a viewer
+    if (user?.role === 'viewer' || user?.role === 'Viewer') {
+      console.warn('[useCanvas] Viewers cannot edit node content');
+      return;
+    }
     syncManagerRef.current?.updateNodeContent(nodeId, content);
-  }, []);
+  }, [user]);
 
   const updateNodeIntent = useCallback((nodeId: string, intent: CanvasNode['intent']) => {
+    // Block if user is a viewer
+    if (user?.role === 'viewer' || user?.role === 'Viewer') {
+      console.warn('[useCanvas] Viewers cannot change node intent');
+      return;
+    }
     syncManagerRef.current?.updateNodeIntent(nodeId, intent);
-  }, []);
+  }, [user]);
 
   const setNodeLocked = useCallback((nodeId: string, locked: boolean) => {
+    // Block if user is a viewer
+    if (user?.role === 'viewer' || user?.role === 'Viewer') {
+      console.warn('[useCanvas] Viewers cannot lock/unlock nodes');
+      return;
+    }
     syncManagerRef.current?.setNodeLocked(nodeId, locked);
-  }, []);
+  }, [user]);
 
   const updateTaskStatus = useCallback((nodeId: string, status: CanvasNode['taskStatus']) => {
+    // Block if user is a viewer
+    if (user?.role === 'viewer' || user?.role === 'Viewer') {
+      console.warn('[useCanvas] Viewers cannot update task status');
+      return;
+    }
     syncManagerRef.current?.updateTaskStatus(nodeId, status);
-  }, []);
+  }, [user]);
 
   const getNode = useCallback((nodeId: string): CanvasNode | null => {
     return syncManagerRef.current?.getNode(nodeId) ?? null;

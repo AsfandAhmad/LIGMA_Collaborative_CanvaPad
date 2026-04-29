@@ -59,6 +59,38 @@ export function CanvasWrapper({
     }
   }, [externalSelectedId]);
 
+  // Listen for scroll-to-node events
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { nodeId } = customEvent.detail;
+      
+      // Find the node
+      const node = nodes.find(n => n.id === nodeId);
+      if (!node || !engineRef.current) {
+        console.warn('[CanvasWrapper] Cannot scroll to node:', nodeId);
+        return;
+      }
+
+      // Get viewport and calculate center position
+      const viewport = engineRef.current.getViewport();
+      const canvasWidth = viewport.getWidth();
+      const canvasHeight = viewport.getHeight();
+      
+      // Pan to center the node on screen
+      const targetX = -node.x + canvasWidth / 2;
+      const targetY = -node.y + canvasHeight / 2;
+      
+      viewport.panTo(targetX, targetY);
+      setViewportTick(t => t + 1);
+      
+      console.log('[CanvasWrapper] Scrolled to node:', nodeId, { x: node.x, y: node.y });
+    };
+
+    window.addEventListener('canvas:scrollToNode', handler);
+    return () => window.removeEventListener('canvas:scrollToNode', handler);
+  }, [nodes]);
+
   // Handle engine ready
   const handleEngineReady = useCallback((engine: CanvasEngine) => {
     engineRef.current = engine;
