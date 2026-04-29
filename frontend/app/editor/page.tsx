@@ -19,6 +19,7 @@ import { usePresence } from "@/lib/hooks/usePresence";
 import { useTaskBoard } from "@/lib/hooks/useTaskBoard";
 import { useAuth } from "@/lib/auth-context";
 import { ShareModal } from "@/components/ligma/ShareModal";
+import { useRoleSync } from "@/lib/hooks/useRoleSync";
 
 type Intent = "action" | "decision" | "question" | "reference";
 type Note = {
@@ -107,7 +108,10 @@ function EditorContent() {
   } = usePresence({ roomId });
 
   // Tasks from backend with real-time WebSocket updates
-  const { tasks, updateTaskStatus: updateTaskStatusAPI } = useTaskBoard({ roomId });
+  const { tasks, updateTaskStatus: updateTaskStatusAPI, ws: taskBoardWs } = useTaskBoard(roomId);
+
+  // Sync role changes from WebSocket
+  useRoleSync(taskBoardWs);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode, setMode] = useState<"canvas" | "split" | "review">("split");

@@ -14,6 +14,7 @@ const tasksRoutes = require('./routes/tasks');
 const roomsRoutes = require('./routes/rooms');
 const workspacesRoutes = require('./routes/workspaces');
 const sharingRoutes = require('./routes/sharing');
+const aiRoutes = require('./routes/ai');
 const { AppError } = require('./utils/errors');
 
 const app = express();
@@ -75,10 +76,11 @@ const authLimiter = rateLimit({
 
 const apiLimiter = rateLimit({
   windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 900000),
-  max: Number(process.env.RATE_LIMIT_MAX_REQUESTS || 100),
+  max: Number(process.env.RATE_LIMIT_MAX_REQUESTS || 1000), // Increased for development
   keyGenerator: (req) => req.user?.id || req.ip,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => process.env.NODE_ENV === 'development', // Skip rate limiting in development
 });
 
 // Health check endpoints
@@ -98,6 +100,7 @@ app.use('/api/canvas', canvasRoutes);
 app.use('/api/nodes', nodesRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/rooms', roomsRoutes);
+app.use('/api/rooms', aiRoutes); // AI summary routes
 app.use('/api/rooms', sharingRoutes);
 app.use('/api/share', sharingRoutes);
 

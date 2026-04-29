@@ -125,9 +125,37 @@ Text to classify: "${text}"`;
         const prisma = require('../db/prisma');
         const existing = await prisma.task.findFirst({ where: { nodeId } });
         if (!existing) {
-          await prisma.task.create({
+          const task = await prisma.task.create({
             data: { text, authorId: userId, nodeId, roomId, status: 'todo' },
+            include: {
+              author: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                }
+              }
+            }
           });
+
+          // Broadcast task creation to all users in room via WebSocket
+          const { broadcast } = require('../ws/wsServer');
+          broadcast(roomId, {
+            type: 'task:created',
+            task: {
+              id: task.id,
+              text: task.text,
+              status: task.status,
+              nodeId: task.nodeId,
+              authorId: task.authorId,
+              authorName: task.author?.name || task.author?.email || 'Unknown',
+              roomId: task.roomId,
+              createdAt: task.createdAt,
+              updatedAt: task.updatedAt,
+            },
+          });
+
+          console.log(`[IntentService] Task created and broadcasted for node ${nodeId}`);
         }
       } catch (dbErr) {
         console.error('Failed to create Task record:', dbErr.message);

@@ -1,26 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useTaskBoard } from "@/lib/hooks/useTaskBoard";
 import { TaskCard } from "./TaskCard";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, Circle, Clock, AlertCircle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
-interface Task {
-  id: string;
-  text: string;
-  status: "todo" | "in_progress" | "done";
-  nodeId: string;
-  authorId: string;
-  authorName?: string;
-  roomId: string;
-  createdAt: string;
-  updatedAt: string;
-}
+import type { Task } from "@/lib/api";
 
 interface TaskBoardProps {
   roomId: string;
@@ -29,121 +16,12 @@ interface TaskBoardProps {
 }
 
 export function TaskBoard({ roomId, onTaskClick, className }: TaskBoardProps) {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Fetch tasks from API
-  const fetchTasks = useCallback(async () => {
-    if (!roomId) return;
-    
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const response = await fetch(`${API}/api/tasks/${roomId}`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch tasks: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      setTasks(data.tasks || []);
-    } catch (err: any) {
-      console.error("Failed to fetch tasks:", err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [roomId]);
-
-  // Initial fetch
-  useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
-
-  // Real-time updates via WebSocket
-  useEffect(() => {
-    if (!roomId) return;
-
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:4000";
-    const ws = new WebSocket(`${wsUrl}/tasks?roomId=${roomId}`);
-
-    ws.onopen = () => {
-      console.log("[TaskBoard] WebSocket connected");
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        
-        switch (message.type) {
-          case "TASK_CREATED":
-            setTasks((prev) => {
-              // Avoid duplicates
-              if (prev.some((t) => t.id === message.task.id)) {
-                return prev;
-              }
-              return [...prev, message.task];
-            });
-            break;
-
-          case "TASK_UPDATED":
-            setTasks((prev) =>
-              prev.map((t) =>
-                t.id === message.task.id ? { ...t, ...message.task } : t
-              )
-            );
-            break;
-
-          case "TASK_DELETED":
-            setTasks((prev) => prev.filter((t) => t.id !== message.taskId));
-            break;
-
-          case "TASK_STATUS_CHANGED":
-            setTasks((prev) =>
-              prev.map((t) =>
-                t.id === message.taskId
-                  ? { ...t, status: message.status }
-                  : t
-              )
-            );
-            break;
-        }
-      } catch (err) {
-        console.error("[TaskBoard] Failed to parse WebSocket message:", err);
-      }
-    };
-
-    ws.onerror = (err) => {
-      console.error("[TaskBoard] WebSocket error:", err);
-    };
-
-    ws.onclose = () => {
-      console.log("[TaskBoard] WebSocket disconnected");
-    };
-
-    return () => {
-      ws.close();
-    };
-  }, [roomId]);
+  const { tasks, loading, error, fetchTasks, updateTaskStatus } = useTaskBoard(roomId);
 
   // Handle task status change
   const handleStatusChange = async (taskId: string, newStatus: Task["status"]) => {
     try {
-      const response = await fetch(`${API}/api/tasks/${taskId}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to update task status");
-      }
-
-      // Optimistic update
-      setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t))
-      );
+      await updateTaskStatus(taskId, newStatus);
     } catch (err) {
       console.error("Failed to update task status:", err);
     }
@@ -151,6 +29,14 @@ export function TaskBoard({ roomId, onTaskClick, className }: TaskBoardProps) {
 
   // Handle task click - scroll to linked node
   const handleTaskClick = (nodeId: string) => {
+    // Dispatch custom event to scroll canvas to node
+    window.dispatchEvent(
+      new CustomEvent("canvas:scrollToNode", {
+        detail: { nodeId },
+      })
+    );
+    
+    // Also call the optional callback
     if (onTaskClick) {
       onTaskClick(nodeId);
     }

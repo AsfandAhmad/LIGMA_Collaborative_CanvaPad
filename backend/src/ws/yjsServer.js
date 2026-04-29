@@ -336,9 +336,9 @@ async function logYjsMutations(mutations, roomId, userId, ydoc) {
         });
     }
 
-    // NEW: AI-powered intent classification + auto task creation
-    // Only for sticky notes with text content
-    if (mutation.payload && mutation.payload.text && mutation.payload.type === 'sticky') {
+    // AI-powered intent classification + auto task creation
+    // Check for text content in any node type
+    if (mutation.payload && mutation.payload.text) {
       // Run asynchronously without blocking
       setImmediate(async () => {
         try {

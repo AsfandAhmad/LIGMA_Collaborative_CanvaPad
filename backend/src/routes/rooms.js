@@ -109,4 +109,61 @@ router.get('/:roomId', authenticateToken, async (req, res) => {
   }
 });
 
+// Update member role in a room
+router.post('/:roomId/members/:userId/role', authenticateToken, async (req, res) => {
+  try {
+    const { roomId, userId } = req.params;
+    const { role } = req.body;
+    const { broadcast } = require('../ws/wsServer');
+
+    // Validate role
+    const validRoles = ['viewer', 'contributor', 'lead'];
+    if (!validRoles.includes(role.toLowerCase())) {
+      return res.status(400).json({ error: 'Invalid role. Must be viewer, contributor, or lead' });
+    }
+
+    const serviceClient = getSupabaseServiceClient();
+    if (!serviceClient) {
+      return res.status(500).json({ error: 'Database client not available' });
+    }
+
+    // Get room's workspace
+    const { data: room } = await serviceClient
+      .from('rooms')
+      .select('workspace_id')
+      .eq('id', roomId)
+      .maybeSingle();
+
+    if (!room?.workspace_id) {
+      return res.status(404).json({ error: 'Room not found or has no workspace' });
+    }
+
+    // Update workspace member role
+    const { data, error } = await serviceClient
+      .from('workspace_members')
+      .update({ role: role.toLowerCase() })
+      .eq('workspace_id', room.workspace_id)
+      .eq('user_id', userId)
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      console.error('Update role error:', error);
+      return res.status(500).json({ error: 'Failed to update role' });
+    }
+
+    // Broadcast role change to all users in room
+    broadcast(roomId, {
+      type: 'role:changed',
+      userId,
+      newRole: role.toLowerCase(),
+    });
+
+    res.json({ success: true, member: data });
+  } catch (error) {
+    console.error('Update member role error:', error);
+    res.status(500).json({ error: 'Failed to update member role' });
+  }
+});
+
 module.exports = router;
