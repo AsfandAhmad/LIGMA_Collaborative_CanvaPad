@@ -25,6 +25,10 @@ export class YjsProvider {
   private onSync?: (synced: boolean) => void;
   private onStatus?: (status: 'connecting' | 'connected' | 'disconnected') => void;
   private onError?: (error: Error) => void;
+  /** Set to true when disconnect() is called intentionally — suppresses reconnect and error logs */
+  private destroyed: boolean = false;
+  /** Track whether the update listener is currently registered */
+  private updateListenerAttached: boolean = false;
 
   constructor(doc: Y.Doc, options: YjsProviderOptions) {
     this.doc = doc;
@@ -38,7 +42,8 @@ export class YjsProvider {
   }
 
   private connect() {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.destroyed) return;
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
     }
 
@@ -53,6 +58,7 @@ export class YjsProvider {
       this.ws.binaryType = 'arraybuffer';
 
       this.ws.onopen = () => {
+        if (this.destroyed) { this.ws?.close(1000, 'destroyed'); return; }
         console.log(`✅ [YjsProvider] Connected to room ${this.roomId}`);
         this.reconnectAttempts = 0;
         this.onStatus?.('connected');
@@ -62,46 +68,59 @@ export class YjsProvider {
       };
 
       this.ws.onmessage = (event) => {
-        this.handleMessage(new Uint8Array(event.data));
+        if (!this.destroyed) this.handleMessage(new Uint8Array(event.data));
       };
 
       this.ws.onclose = (event) => {
-        console.error(`❌ [YjsProvider] Disconnected from room ${this.roomId}`, {
+        // Intentional disconnect or browser navigation away — log quietly and stop
+        if (this.destroyed || event.code === 1000 || event.code === 1001) {
+          console.log(`[YjsProvider] Disconnected from room ${this.roomId} (code ${event.code}, clean)`);
+          this.onStatus?.('disconnected');
+          this.synced = false;
+          return;
+        }
+
+        // Unexpected disconnect
+        console.warn(`⚠️ [YjsProvider] Disconnected from room ${this.roomId}`, {
           code: event.code,
           reason: event.reason || 'No reason provided',
-          wasClean: event.wasClean
+          wasClean: event.wasClean,
         });
-        
-        // Log specific close codes
+
         if (event.code === 1008) {
-          console.error('❌ Authentication failed - invalid or expired token');
+          console.error('[YjsProvider] Authentication failed — invalid or expired token');
         } else if (event.code === 1006) {
-          console.error('❌ Connection closed abnormally - check backend is running');
+          console.warn('[YjsProvider] Connection closed abnormally — check backend is running');
         }
         
         this.onStatus?.('disconnected');
         this.synced = false;
         this.onSync?.(false);
 
-        // Attempt reconnection
+        // Attempt reconnection with exponential backoff
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
           this.reconnectAttempts++;
           const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
           console.log(`[YjsProvider] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
           this.reconnectTimeout = setTimeout(() => this.connect(), delay);
         } else {
-          console.error('❌ Max reconnection attempts reached');
+          console.error('[YjsProvider] Max reconnection attempts reached');
           this.onError?.(new Error('Max reconnection attempts reached'));
         }
       };
 
-      this.ws.onerror = (error) => {
-        console.error('❌ [YjsProvider] WebSocket error:', error);
-        this.onError?.(new Error('WebSocket connection error'));
+      this.ws.onerror = () => {
+        // Browser WebSocket error events carry no useful detail — only log if unexpected
+        if (!this.destroyed) {
+          console.warn('[YjsProvider] WebSocket connection error (will retry on close)');
+        }
       };
 
-      // Listen to local document updates and send to server
-      this.doc.on('update', this.handleLocalUpdate);
+      // Register update listener only once
+      if (!this.updateListenerAttached) {
+        this.doc.on('update', this.handleLocalUpdate);
+        this.updateListenerAttached = true;
+      }
 
     } catch (error) {
       console.error('❌ [YjsProvider] Connection error:', error);
@@ -199,15 +218,20 @@ export class YjsProvider {
   }
 
   public disconnect() {
+    this.destroyed = true;
+
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
 
-    this.doc.off('update', this.handleLocalUpdate);
+    if (this.updateListenerAttached) {
+      this.doc.off('update', this.handleLocalUpdate);
+      this.updateListenerAttached = false;
+    }
 
     if (this.ws) {
-      this.ws.close();
+      this.ws.close(1000, 'disconnect');
       this.ws = null;
     }
 
